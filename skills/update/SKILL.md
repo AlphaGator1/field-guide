@@ -84,7 +84,9 @@ system's watch-outs, neither of which owns settings.rs.)
   check names each one).
 
 Run `GUIDE check` until it passes, then `GUIDE render`, then `GUIDE stamp`.
-Do not commit unless the user asks.
+When `changed` found no code changes and nothing was merged, skip the stamp:
+it would only move the baseline onto a commit that changed nothing but the
+guide, and leave an uncommitted edit behind. Do not commit unless the user asks.
 
 ## 5. Report
 
