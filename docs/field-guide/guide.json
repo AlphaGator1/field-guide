@@ -485,6 +485,53 @@
         "Always anchor a CLI mutation on text that occurs exactly once in the bundle, because a duplicate anchor mutates the wrong site and proves nothing.",
         "Never edit dist/guide.mjs by hand, because the freshness check rebuilds it from src/."
       ]
+    },
+    {
+      "id": "examples",
+      "group": "plugin",
+      "name": "Bundled example",
+      "oneLiner": "A complete guide the plugin built for ParaFlow, with its rendered page.",
+      "summary": "examples/paraflow holds the field guide /field-guide:build produced for ParaFlow, an open-source Tauri dictation app, at its commit ecfdf66: the guide, its config and the rendered page. It shows what a finished build looks like before anyone runs one. It is data, not code: the plugin's own check treats it as prose.",
+      "journey": [
+        "A visitor opens examples/paraflow/README.md",
+        "They download guide.html and browse the 13 systems",
+        "They see the guide.json shape a build writes into docs/field-guide/"
+      ],
+      "owns": [
+        "examples/**"
+      ],
+      "keyFiles": [
+        {
+          "path": "examples/paraflow/README.md",
+          "what": "What the example is, how it was made, and commands to try."
+        },
+        {
+          "path": "examples/paraflow/guide.json",
+          "what": "The guide itself: 13 systems, 3 flows, 45 glossary terms."
+        },
+        {
+          "path": "examples/paraflow/guide.html",
+          "what": "The rendered page, self-contained and offline."
+        }
+      ],
+      "models": [],
+      "jobs": [],
+      "switches": [],
+      "connects": [
+        {
+          "to": "page",
+          "why": "Its guide.html is the template rendered with ParaFlow's guide."
+        },
+        {
+          "to": "skills",
+          "why": "The build skill produced it."
+        }
+      ],
+      "rules": [],
+      "checks": [],
+      "watchOuts": [
+        "Always regenerate the example from a real build at a stated ParaFlow commit, because hand edits would show readers a guide no build produced."
+      ]
     }
   ],
   "flows": [

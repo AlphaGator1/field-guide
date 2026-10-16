@@ -1,7 +1,7 @@
 {
   "name": "field-guide",
   "owner": {
-    "name": "OWNER_NAME"
+    "name": "AlphaGator1"
   },
   "description": "The Field Guide plugin for Claude Code.",
   "plugins": [

@@ -1,0 +1,19 @@
+{
+  "guide": "guide.json",
+  "root": "../..",
+  "files": "git",
+  "include": [
+    "**"
+  ],
+  "exclude": [],
+  "entryMaxChars": 12000,
+  "addons": {
+    "packageScripts": {
+      "file": "package.json",
+      "match": ".*"
+    },
+    "githubWorkflows": {
+      "dir": ".github/workflows"
+    }
+  }
+}

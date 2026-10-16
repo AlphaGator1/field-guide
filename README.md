@@ -21,7 +21,17 @@ The plugin builds the guide with parallel drafting subagents, then has a
 second set of **adversarial** subagents fact-check every claim against the
 code before it is accepted.
 
-> Status: 0.1.0, unreleased. Tested on two outside repositories (below).
+> Status: 0.1.0. Tested on two outside repositories (below). See
+> [`examples/paraflow/`](examples/paraflow/) for a complete guide and its
+> rendered page.
+
+## Where it comes from
+
+Field Guide is a side project from [SiliconExchange](https://www.siliconexchange.io),
+a US marketplace for buying and selling PC hardware. We built the first
+version to map our own codebase, so that we and our Claude sessions could find
+our way around it without reading the code cold. Then we generalized it,
+tested it on projects we did not write, and published it here.
 
 ## Why not a code graph?
 
@@ -43,20 +53,20 @@ as the open-source package (code-only mode) and as the hosted service.
 | Cost to build | 3 seconds, no tokens | hosted | 21 minutes, about 1.4M subagent tokens |
 
 Use a graph, or grep, for exact call sites. Use a guide to orient before you
-open the code. They work well together. On a private TypeScript codebase (732
-code files), the local graph found 70 of the 74 caller files that grep found
-for 20 functions, with no false hits.
+open the code. They work well together. On SiliconExchange's own private
+TypeScript codebase (732 code files), the local graph found 70 of the 74
+caller files that grep found for 20 functions, with no false hits.
 
 ## Install
 
 In Claude Code:
 
 ```
-/plugin marketplace add OWNER/field-guide
+/plugin marketplace add AlphaGator1/field-guide
 /plugin install field-guide@field-guide
 ```
 
-Or from a shell: `claude plugin marketplace add OWNER/field-guide`, then
+Or from a shell: `claude plugin marketplace add AlphaGator1/field-guide`, then
 `claude plugin install field-guide@field-guide`. To try a local checkout
 without installing: `claude --plugin-dir ./field-guide`.
 

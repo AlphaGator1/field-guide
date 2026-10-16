@@ -17,6 +17,7 @@
     "*.md",
     "LICENSE",
     "templates/*.md",
-    "skills/build/reference/**"
+    "skills/build/reference/**",
+    "examples/**"
   ]
 }
