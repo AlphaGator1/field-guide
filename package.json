@@ -1,0 +1,22 @@
+{
+  "name": "system-atlas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A plain-English, code-verified map of every system in a repository, with a coverage check and a one-entry lookup. Ships as a Claude Code plugin.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node test/run.mjs",
+    "check": "npm run typecheck && node scripts/build.mjs --verify && node test/run.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0"
+  }
+}

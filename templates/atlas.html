@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>System Atlas</title>
+<style>
+/* A neutral page: a masthead band, then a two-pane atlas (system tiles by group on the
+   left, the selected system's dossier pinned on the right, stacked on phones), then the
+   jobs table and the glossary. System fonts only: the page makes no network request. */
+:root {
+  --bg: #fbfbfa; --surface: #f1f1ef; --raised: #ffffff; --fg: #1c1c1a; --muted: #62625d;
+  --border: #e2e1dc; --accent: #2b59c3; --accent-soft: color-mix(in oklab, #2b59c3 9%, transparent);
+  --warn: #9a5b00; --warn-soft: color-mix(in oklab, #b26a00 10%, transparent);
+  --mast: #1f2328; --on-mast: #f3f3f1; --on-mast-muted: #a9adb3; --mast-input: #2b3036; --mast-border: #3d434a;
+  --g0: #2b59c3; --g1: #a3511f; --g2: #2f7d4f; --g3: #8a3fa8; --g4: #a8326a; --g5: #1f7f8c; --g6: #7a6a12; --g7: #5d6470;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  --radius: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141414; --surface: #1c1c1c; --raised: #232323; --fg: #ecebe8; --muted: #a3a29c;
+    --border: #34332f; --accent: #7aa2ff; --accent-soft: color-mix(in oklab, #7aa2ff 16%, transparent);
+    --warn: #f2b84b; --warn-soft: color-mix(in oklab, #f2b84b 12%, transparent);
+    --mast: #0d0d0d; --mast-input: #1d1d1d; --mast-border: #34332f;
+    --g0: #7aa2ff; --g1: #f0a06e; --g2: #6fcf97; --g3: #c99bf0; --g4: #f28cb8; --g5: #6fd0dc; --g6: #e0cd6a; --g7: #a5acb8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141414; --surface: #1c1c1c; --raised: #232323; --fg: #ecebe8; --muted: #a3a29c;
+  --border: #34332f; --accent: #7aa2ff; --accent-soft: color-mix(in oklab, #7aa2ff 16%, transparent);
+  --warn: #f2b84b; --warn-soft: color-mix(in oklab, #f2b84b 12%, transparent);
+  --mast: #0d0d0d; --mast-input: #1d1d1d; --mast-border: #34332f;
+  --g0: #7aa2ff; --g1: #f0a06e; --g2: #6fcf97; --g3: #c99bf0; --g4: #f28cb8; --g5: #6fd0dc; --g6: #e0cd6a; --g7: #a5acb8;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+a { color: var(--accent); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.mast { background: var(--mast); color: var(--on-mast); }
+.mast .wrap { padding-block: 28px 22px; display: grid; gap: 16px; }
+.eyebrow { font-size: 0.85rem; color: var(--on-mast-muted); letter-spacing: 0.02em; }
+.mast h1 { font-size: clamp(1.8rem, 3.4vw, 2.5rem); font-weight: 700; letter-spacing: -0.01em; line-height: 1.12; }
+.mast p { margin: 0; max-width: 72ch; color: var(--on-mast-muted); }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 28px; font-variant-numeric: tabular-nums; }
+.stat b { display: block; font-size: 1.3rem; font-weight: 600; color: var(--on-mast); }
+.stat span { font-size: 0.82rem; color: var(--on-mast-muted); }
+.searchbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.searchbar input { flex: 1 1 320px; min-width: 0; background: var(--mast-input); color: var(--on-mast); border: 1px solid var(--mast-border); border-radius: 8px; padding: 10px 14px; font: inherit; }
+.searchbar input::placeholder { color: var(--on-mast-muted); }
+.searchbar .hint { font-size: 0.82rem; color: var(--on-mast-muted); }
+
+.panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 28px; padding-block: 26px 10px; align-items: start; }
+@media (max-width: 1000px) { .panes { grid-template-columns: minmax(0, 1fr); } }
+.lane { display: grid; gap: 10px; margin-bottom: 22px; }
+.lane-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.lane-head h2 { font-size: 1.02rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.lane-head h2::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--lane); flex: none; }
+.lane-head p { margin: 0; font-size: 0.86rem; color: var(--muted); min-width: 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: 10px; }
+.tile { text-align: left; background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 13px 11px; cursor: pointer; display: grid; gap: 4px; align-content: start; border-top: 3px solid var(--lane); transition: border-color .15s, background .15s, opacity .15s; min-width: 0; }
+.tile:hover { border-color: var(--accent); border-top-color: var(--lane); }
+.tile .t-name { font-weight: 600; font-size: 0.97rem; }
+.tile .t-line { font-size: 0.84rem; color: var(--muted); line-height: 1.4; }
+.tile .t-meta { font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.tile[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); border-top-color: var(--lane); }
+.tile.linked { border-color: var(--lane); }
+.tile .t-link { display: none; font-size: 0.76rem; color: var(--fg); line-height: 1.35; padding-top: 4px; border-top: 1px dashed var(--border); margin-top: 4px; }
+.tile.linked .t-link { display: block; }
+.tile.dim { opacity: 0.32; }
+
+.dossier { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); max-height: calc(100vh - 24px); overflow: auto; background: var(--surface); border-radius: 14px; padding: 20px 20px 22px; display: grid; gap: 18px; min-width: 0; }
+@media (max-width: 1000px) { .dossier { position: static; max-height: none; } }
+.d-eyebrow { font-size: 0.8rem; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.d-eyebrow::before { content: ""; width: 9px; height: 9px; border-radius: 3px; background: var(--lane); }
+.dossier h2 { font-size: 1.42rem; font-weight: 700; line-height: 1.2; }
+.d-line { margin: 4px 0 0; color: var(--muted); }
+.d-summary { margin: 0; max-width: 65ch; }
+.sec { display: grid; gap: 8px; }
+.sec h3 { font-size: 0.86rem; font-weight: 600; color: var(--muted); letter-spacing: 0.01em; }
+ol.journey { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; }
+ol.journey li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
+.files { display: grid; gap: 7px; }
+.file { display: grid; gap: 1px; min-width: 0; }
+.file code { color: var(--fg); overflow-wrap: anywhere; }
+.file span, .switch span { font-size: 0.86rem; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-family: var(--font-mono); font-size: 0.78rem; background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; overflow-wrap: anywhere; }
+.links { display: grid; gap: 6px; }
+.linkrow { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: baseline; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.linkrow b { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.linkrow span { font-size: 0.88rem; color: var(--muted); }
+.linkrow:hover b { text-decoration: underline; }
+.jobs-mini { display: grid; gap: 8px; }
+.job, .switch { display: grid; gap: 1px; }
+.job .when { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.watch { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.watch li { background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 8px 11px; border-radius: 0 8px 8px 0; font-size: 0.92rem; }
+.flows { display: grid; gap: 20px; }
+.flows h3 { font-size: 1rem; color: var(--fg); margin-bottom: 8px; }
+.flow { margin: 0; padding: 0; list-style: none; display: grid; counter-reset: step; }
+.flow li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; padding-bottom: 12px; position: relative; counter-increment: step; }
+.flow li::before { content: counter(step); width: 24px; height: 24px; border-radius: 50%; background: var(--raised); border: 1px solid var(--border); display: grid; place-items: center; font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--muted); }
+.flow li:not(:last-child)::after { content: ""; position: absolute; left: 12px; top: 26px; bottom: 2px; width: 1px; background: var(--border); }
+.flow button { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; cursor: pointer; text-align: left; }
+.flow p { margin: 1px 0 0; font-size: 0.9rem; }
+.empty-note { font-size: 0.9rem; color: var(--muted); margin: 0; }
+
+.lower { padding-block: 18px 40px; display: grid; gap: 34px; }
+.lower h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 4px; }
+.lower .sub { margin: 0 0 12px; color: var(--muted); font-size: 0.9rem; max-width: 70ch; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.9rem; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 0.82rem; background: var(--surface); }
+tr:last-child td { border-bottom: 0; }
+td.when { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kind { font-size: 0.75rem; border-radius: 5px; padding: 1px 6px; white-space: nowrap; border: 1px solid var(--border); color: var(--muted); }
+td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--accent); font-weight: 500; text-align: left; }
+.gloss { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px 28px; margin: 0; }
+.gloss div { min-width: 0; }
+.gloss dt { font-weight: 600; }
+.gloss dd { margin: 2px 0 0; color: var(--muted); font-size: 0.92rem; }
+.foot { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: 14px; }
+.foot p { margin: 0 0 4px; max-width: 86ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<header class="mast">
+  <div class="wrap">
+    <div class="eyebrow">System Atlas · how this project is built</div>
+    <h1 id="title">System Atlas</h1>
+    <p id="about"></p>
+    <div class="stats" id="stats"></div>
+    <div class="searchbar">
+      <label for="q" class="sr-only">Search the atlas</label>
+      <input id="q" type="search" placeholder="Search a system, file path, job, switch or term" autocomplete="off">
+      <span class="hint" id="qstatus" aria-live="polite">Pick a system to see how it works.</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="panes">
+    <div id="map"></div>
+    <aside class="dossier" id="dossier" aria-live="polite"></aside>
+  </div>
+  <div class="lower">
+    <section id="jobs-sec">
+      <h2>Everything that runs on a schedule or on demand</h2>
+      <p class="sub">Each job, the system that owns it, and what starts it.</p>
+      <div class="tablewrap"><table id="jobs"></table></div>
+    </section>
+    <section id="gloss-sec">
+      <h2>Glossary</h2>
+      <p class="sub">The terms the entries use, in plain English.</p>
+      <dl class="gloss" id="gloss"></dl>
+    </section>
+    <footer class="foot" id="foot"></footer>
+  </div>
+</main>
+
+<script type="application/json" id="atlas-data">/*ATLAS_DATA*/</script>
+<script>
+(function () {
+  var A = JSON.parse(document.getElementById("atlas-data").textContent);
+  var KIND = { "github-action": "GitHub Action", "vercel-cron": "Vercel Cron", "package-script": "package script", "make-target": "make target", "file": "script", "external": "external" };
+  var byId = {}, groupById = {}, laneById = {};
+  A.systems.forEach(function (s) { byId[s.id] = s; });
+  A.groups.forEach(function (g, i) { groupById[g.id] = g; laneById[g.id] = "var(--g" + (i % 8) + ")"; });
+  var selected = null;
+
+  function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function lane(id) { return laneById[id] || "var(--g7)"; }
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+  // The same glob rules as the CLI: * within a segment, ** across, **/ also zero folders, ? one char, {a,b}.
+  function globRe(glob) {
+    var re = "";
+    for (var i = 0; i < glob.length; i++) {
+      var c = glob[i];
+      if (c === "*" && glob[i + 1] === "*") { if (glob[i + 2] === "/") { re += "(?:.*/)?"; i += 2; } else { re += ".*"; i++; } }
+      else if (c === "*") re += "[^/]*";
+      else if (c === "?") re += "[^/]";
+      else if (c === "{" && glob.indexOf("}", i) > i) { var end = glob.indexOf("}", i); re += "(?:" + glob.slice(i + 1, end).split(",").map(function (a) { return a.replace(/[.+?^${}()|[\]\\*]/g, "\\$&"); }).join("|") + ")"; i = end; }
+      else re += c.replace(/[.+?^${}()|[\]\\*]/g, "\\$&");
+    }
+    return new RegExp("^" + re + "$");
+  }
+
+  document.title = A.title || "System Atlas";
+  document.getElementById("title").textContent = A.title || "System Atlas";
+  document.getElementById("about").textContent = A.about || "";
+  var st = A.stats || {};
+  var statList = [[A.systems.length, "systems"], [A.groups.length, "groups"], [st.files, "files mapped"], [st.jobs || null, "jobs"], [st.models || null, "data models"], [st.checks || null, "checks named"]];
+  (st.extra || []).forEach(function (x) { statList.push([x.value, x.label]); });
+  document.getElementById("stats").innerHTML = statList.filter(function (x) { return x[0] != null; }).map(function (x) {
+    return '<div class="stat"><b>' + esc(x[0]) + "</b><span>" + esc(x[1]) + "</span></div>";
+  }).join("");
+
+  var map = document.getElementById("map");
+  map.innerHTML = A.groups.map(function (g) {
+    var tiles = A.systems.filter(function (s) { return s.group === g.id; }).map(function (s) {
+      var meta = [plural(s.keyFiles.length, "key file", "key files"), s.jobs.length ? plural(s.jobs.length, "job", "jobs") : null, s.models.length ? plural(s.models.length, "model", "models") : null].filter(Boolean).join(" · ");
+      return '<button class="tile" type="button" id="tile-' + esc(s.id) + '" data-id="' + esc(s.id) + '" aria-pressed="false" style="--lane:' + lane(g.id) + '">' +
+        '<span class="t-name">' + esc(s.name) + '</span><span class="t-line">' + esc(s.oneLiner) + '</span><span class="t-meta">' + esc(meta) + '</span><span class="t-link"></span></button>';
+    }).join("");
+    return '<section class="lane" style="--lane:' + lane(g.id) + '"><div class="lane-head"><h2>' + esc(g.name) + "</h2><p>" + esc(g.blurb) + '</p></div><div class="tiles">' + tiles + "</div></section>";
+  }).join("");
+  map.addEventListener("click", function (e) { var t = e.target.closest(".tile"); if (t) select(t.getAttribute("data-id"), true); });
+
+  function overview() {
+    var flows = (A.flows || []).map(function (f) {
+      return "<div><h3>" + esc(f.name) + '</h3><ol class="flow">' + f.steps.map(function (s2) {
+        var s = byId[s2.system];
+        return '<li><div><button type="button" data-go="' + esc(s2.system) + '">' + esc(s ? s.name : s2.system) + "</button><p>" + esc(s2.text) + "</p></div></li>";
+      }).join("") + "</ol></div>";
+    }).join("");
+    return '<div class="d-eyebrow" style="--lane:var(--accent)">Start here</div><h2>The big picture</h2>' +
+      (A.overview ? '<p class="d-summary">' + esc(A.overview) + "</p>" : "") + '<div class="flows">' + flows + "</div>" +
+      '<p class="empty-note">Pick any tile to open that system. Its connected systems light up on the map.</p>';
+  }
+
+  function dossier(s) {
+    var g = groupById[s.group] || { id: s.group, name: s.group };
+    var h = '<div><div class="d-eyebrow" style="--lane:' + lane(g.id) + '">' + esc(g.name) + "</div><h2>" + esc(s.name) + '</h2><p class="d-line">' + esc(s.oneLiner) + "</p></div>";
+    h += '<p class="d-summary">' + esc(s.summary) + "</p>";
+    if (s.journey.length) h += '<div class="sec"><h3>How it works</h3><ol class="journey">' + s.journey.map(function (j) { return "<li>" + esc(j) + "</li>"; }).join("") + "</ol></div>";
+    if (s.watchOuts.length) h += '<div class="sec"><h3>Watch out</h3><ul class="watch">' + s.watchOuts.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("") + "</ul></div>";
+    if (s.connects.length) h += '<div class="sec"><h3>Connected to</h3><div class="links">' + s.connects.map(function (c) {
+      var o = byId[c.to];
+      return '<button class="linkrow" type="button" data-go="' + esc(c.to) + '"><b>' + esc(o ? o.name : c.to) + "</b><span>" + esc(c.why) + "</span></button>";
+    }).join("") + "</div></div>";
+    h += '<div class="sec"><h3>Where the code lives</h3><div class="files">' + s.keyFiles.map(function (k) {
+      return '<div class="file"><code>' + esc(k.path) + "</code><span>" + esc(k.what) + "</span></div>";
+    }).join("") + "</div></div>";
+    if (s.jobs.length) h += '<div class="sec"><h3>Jobs</h3><div class="jobs-mini">' + s.jobs.map(function (j) {
+      return '<div class="job"><b>' + esc(j.name) + '</b><span class="when">' + esc(j.when) + " · " + esc(KIND[j.kind] || j.kind) + "</span><span>" + esc(j.what) + "</span></div>";
+    }).join("") + "</div></div>";
+    if (s.switches.length) h += '<div class="sec"><h3>Switches</h3>' + s.switches.map(function (w) {
+      return '<div class="switch"><code>' + esc(w.name) + "</code><span>" + esc(w.what) + "</span></div>";
+    }).join("") + "</div>";
+    if (s.models.length) h += '<div class="sec"><h3>Data models</h3><div class="chips">' + s.models.map(function (m) { return '<span class="chip">' + esc(m) + "</span>"; }).join("") + "</div></div>";
+    var rc = s.rules.concat(s.checks);
+    if (rc.length) h += '<div class="sec"><h3>Rules and checks that guard it</h3><div class="chips">' + rc.map(function (r) { return '<span class="chip">' + esc(r) + "</span>"; }).join("") + "</div></div>";
+    h += '<div class="sec"><h3>Every file it owns</h3><div class="chips">' + s.owns.map(function (o) { return '<span class="chip">' + esc(o) + "</span>"; }).join("") + "</div></div>";
+    return h;
+  }
+
+  var dos = document.getElementById("dossier");
+  dos.addEventListener("click", function (e) { var b = e.target.closest("[data-go]"); if (b) select(b.getAttribute("data-go"), true); });
+
+  function select(id, scroll) {
+    selected = byId[id] ? id : null;
+    var s = selected ? byId[selected] : null;
+    document.querySelectorAll(".tile").forEach(function (t) {
+      var tid = t.getAttribute("data-id");
+      t.setAttribute("aria-pressed", String(tid === selected));
+      var link = s ? s.connects.filter(function (c) { return c.to === tid; })[0] : null;
+      var back = s ? byId[tid].connects.filter(function (c) { return c.to === selected; })[0] : null;
+      var why = link || back;
+      t.classList.toggle("linked", !!why && tid !== selected);
+      t.querySelector(".t-link").textContent = why && tid !== selected ? why.why : "";
+    });
+    dos.innerHTML = s ? dossier(s) : overview();
+    dos.scrollTop = 0;
+    try { history.replaceState(null, "", selected ? "#" + selected : location.pathname + location.search); } catch (e) {}
+    if (scroll && s && window.matchMedia("(max-width: 1000px)").matches) dos.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  var q = document.getElementById("q"), qs = document.getElementById("qstatus");
+  function haystack(s) {
+    return [s.id, s.name, s.oneLiner, s.summary, s.journey.join(" "), s.watchOuts.join(" "), s.models.join(" "), s.rules.join(" "), s.checks.join(" "),
+      s.keyFiles.map(function (k) { return k.path + " " + k.what; }).join(" "), s.jobs.map(function (j) { return j.name + " " + j.ref + " " + j.what; }).join(" "),
+      s.switches.map(function (w) { return w.name + " " + w.what; }).join(" ")].join(" ").toLowerCase();
+  }
+  q.addEventListener("input", function () {
+    var v = q.value.trim().toLowerCase().replace(/\\/g, "/").replace(/^\.\//, "");
+    var hits = [];
+    A.systems.forEach(function (s) {
+      var m = !v || haystack(s).indexOf(v) >= 0 || (/[\/.]/.test(v) && s.owns.some(function (o) { return globRe(o.toLowerCase()).test(v); }));
+      document.getElementById("tile-" + s.id).classList.toggle("dim", !m);
+      if (m && v) hits.push(s);
+    });
+    qs.textContent = !v ? "Pick a system to see how it works." : hits.length ? plural(hits.length, "system matches", "systems match") + (hits.length === 1 ? ": " + hits[0].name : "") : "No system matches. Try a file path from the repo root.";
+    if (hits.length === 1) select(hits[0].id, false);
+  });
+
+  var allJobs = [];
+  A.systems.forEach(function (s) { s.jobs.forEach(function (j) { allJobs.push({ j: j, s: s }); }); });
+  allJobs.sort(function (a, b) { return (KIND[a.j.kind] || "").localeCompare(KIND[b.j.kind] || "") || a.j.name.localeCompare(b.j.name); });
+  if (!allJobs.length) document.getElementById("jobs-sec").hidden = true;
+  document.getElementById("jobs").innerHTML = '<thead><tr><th scope="col">Job</th><th scope="col">When</th><th scope="col">Runs as</th><th scope="col">System</th><th scope="col">What it does</th></tr></thead><tbody>' +
+    allJobs.map(function (x) {
+      return "<tr><td><b>" + esc(x.j.name) + '</b></td><td class="when">' + esc(x.j.when) + '</td><td><span class="kind">' + esc(KIND[x.j.kind] || x.j.kind) + '</span></td><td><button class="sysbtn" type="button" data-go="' + esc(x.s.id) + '">' + esc(x.s.name) + "</button></td><td>" + esc(x.j.what) + "</td></tr>";
+    }).join("") + "</tbody>";
+  document.getElementById("jobs").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-go]");
+    if (b) { select(b.getAttribute("data-go"), false); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  });
+
+  var gloss = (A.glossary || []).slice().sort(function (a, b) { return a.term.localeCompare(b.term); });
+  if (!gloss.length) document.getElementById("gloss-sec").hidden = true;
+  document.getElementById("gloss").innerHTML = gloss.map(function (g) { return "<div><dt>" + esc(g.term) + "</dt><dd>" + esc(g.meaning) + "</dd></div>"; }).join("");
+
+  var v = A.verified ? " The prose was last verified against commit <code>" + esc(String(A.verified.commit).slice(0, 12)) + "</code> on " + esc(A.verified.date) + "." : "";
+  document.getElementById("foot").innerHTML = "<p>Generated from <code>" + esc(st.source || "atlas.json") + "</code> at commit <code>" + esc(st.commit || "?") + "</code> on " + esc(st.generated || "?") + "." + v + "</p>" +
+    "<p><code>atlas check</code> fails when a file belongs to no system or a name the atlas uses no longer exists. It does not verify the prose: when a system changes how it works, its entry is re-read by hand.</p>";
+
+  var start = (location.hash || "").replace("#", "");
+  select(byId[start] ? start : null, false);
+})();
+</script>
+</body>
+</html>
