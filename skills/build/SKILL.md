@@ -185,10 +185,13 @@ Tell the user, briefly:
 Each drafting agent reads its systems' code and instruction files, and each
 fact-checker reads it again. Measured builds:
 
-| Repository | Files mapped | Systems | Subagents | Subagent tokens | Wall time |
-|---|---|---|---|---|---|
-| (filled in from the test builds) | | | | | |
+| Repository | Files mapped | Lines (inventory) | Systems | Subagents | Subagent tokens | Wall time |
+|---|---|---|---|---|---|---|
+| ParaFlow (Rust + React, Tauri) | 59 | ~17k | 13 | 6 | 1,381,950 | 21 min |
+| httpie/cli (Python) | 267 | ~28k | 18 | 8 | 2,219,440 | 26 min |
 
-As a rule of thumb, expect subagent tokens of roughly 2 to 3 times the
-repository's total lines of text, times 1,000 tokens per 100 lines read, and
-plan for the main session to add a further 10 to 20 percent.
+Estimate before asking for the go-ahead: about **80 subagent tokens per line**
+that `ATLAS inventory` reports (both builds landed within a few percent of
+it), or 100 to 125k per system. The main session adds its own share on top.
+Tell the user the estimate in tokens, and that most are cached re-reads whose
+price depends on their plan.

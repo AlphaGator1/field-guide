@@ -10,42 +10,42 @@ its behaviour, what it connects to, the traps to avoid, and the rules and
 tests that guard it. It comes with:
 
 - **a one-entry lookup** (`node docs/atlas/atlas.mjs <id | path | word>`), so
-  a Claude session reads one system's entry (about 1-3k tokens) instead of
-  the whole map or the code cold;
+  a Claude session reads one system's entry (typically 1-2.5k tokens) instead
+  of the whole map or the code cold;
 - **a check for CI** (`node docs/atlas/atlas.mjs check`) that fails when a file
   belongs to no system or when anything the atlas names no longer exists;
-- **a single-page HTML view** for people (`node docs/atlas/atlas.mjs render`).
+- **a single-page HTML view** for people (`node docs/atlas/atlas.mjs render`),
+  offline, light and dark, phone to desktop.
 
-This plugin builds the atlas with parallel drafting subagents, then has a
+The plugin builds the atlas with parallel drafting subagents, then has a
 second set of **adversarial** subagents fact-check every claim against the
-code before anything is accepted.
+code before it is accepted.
 
 > Status: 0.1.0, unreleased. Tested on two outside repositories (below).
 
 ## Why not a code graph?
 
-Code-graph tools parse your source into nodes and edges. They are fast,
-free to run, and good at one question: "what calls this function?" An atlas
-answers a different one: "what is this part of the system for, how does it
-work, and what will bite me if I change it?" We tried both on the same code.
+Code-graph tools parse your source into nodes and edges. They are fast and
+good at one question: "what calls this?" An atlas answers a different one:
+"what is this part of the system for, how does it work, and what will bite me
+if I change it?" We ran both on the same commit of a Tauri app (ParaFlow: Rust
+backend, React front end, PowerShell scripts, 57 files), using Graphify both
+as the open-source package (code-only mode) and as the hosted service.
 
-| | Code graph (Graphify 0.9.73, code-only mode) | System Atlas |
-|---|---|---|
-| Unit of answer | a function, class or file node and its edges | a named system, in sentences |
-| Covers non-code files (CI, installer scripts, docs, assets) | no: on ParaFlow, 27 of 57 files had no node | yes: the check fails until every file has an owner |
-| Crosses language boundaries (React UI to Rust backend) | no: 0 edges on ParaFlow | yes, in `connects` and the journeys |
-| Environment switches, scheduled jobs, CI workflows | no: 0 of ParaFlow's 9 `PARAFLOW_*` switches | yes, and the check proves each one still exists |
-| "Why" and "watch out" knowledge | no | yes, fact-checked against the code |
-| Cost to build | seconds, no tokens | {{COST_SUMMARY}} |
-| Stays current | re-run the parser | the check catches files and names; prose is re-checked with `/system-atlas:update` |
+| | Graphify, local (0.9.73, code-only) | Graphify, hosted | System Atlas |
+|---|---|---|---|
+| Unit of answer | a node and its edges | a node and its edges, or code bodies for a question | a named system, in sentences |
+| Files covered | 30 of 57 had a node | code and the README; no node for the user guide, the CSS or the installer hook | all 57: the check fails while any file has no owner |
+| Calls between Rust modules | 1 of 33 `module::fn()` calls found | 5 of 5 sampled functions, 17 call sites, all correct | not a call graph |
+| React UI to Rust backend (Tauri `invoke()`) | 0 edges | none seen | in `connects` and the journeys |
+| Environment switches (9 `PARAFLOW_*`) | 0 | 0 | 9, each still proven present by the check |
+| Stale comments and docs | served as written | served as written | contradictions found and called out |
+| Cost to build | 3 seconds, no tokens | hosted | 21 minutes, about 1.4M subagent tokens |
 
-On a private TypeScript codebase (732 code files), the graph found 70 of the
-74 caller files that grep found for 20 functions, with no false hits: a useful
-blast radius. On ParaFlow's Rust, it found 1 of 33 cross-module calls written as
-`module::function()`, so its "what is affected if I change `paste()`?" query
-returned nothing, though `pipeline.rs` calls it. Use a graph for call sites;
-use an atlas to orient. They do not compete, and grep remains the ground truth
-for call sites.
+Use a graph, or grep, for exact call sites. Use an atlas to orient before you
+open the code. They work well together. On a private TypeScript codebase (732
+code files), the local graph found 70 of the 74 caller files that grep found
+for 20 functions, with no false hits.
 
 ## Install
 
@@ -68,7 +68,7 @@ Requirements: Node 18 or newer (the CLI is one dependency-free file), and git
 | Command | What it does |
 |---|---|
 | `/system-atlas:build` | Builds the atlas: inventory, a proposed grouping for you to confirm, parallel drafting, adversarial fact-check, the check, and the wiring you choose (a CLAUDE.md block or a project skill; a GitHub Actions job or a package script). |
-| `/system-atlas:update [commit]` | After code changes: lists the systems whose files changed since the atlas was last verified, re-checks those entries against the diff, places new files, re-runs the check. |
+| `/system-atlas:update [commit]` | After code changes: lists the systems whose files changed since the atlas was last verified, searches the atlas for the old values the diff replaced, re-checks those entries against the diff, places new files, re-runs the check. |
 
 Both are user-invoked only: Claude never starts a build on its own, because a
 build spends real tokens.
@@ -78,9 +78,10 @@ teammates run it with plain `node`, without the plugin:
 
 ```
 node docs/atlas/atlas.mjs                  # every system, one line each
-node docs/atlas/atlas.mjs <id>             # one system in full
+node docs/atlas/atlas.mjs <id>             # one system in full (--json: as stored)
 node docs/atlas/atlas.mjs <path>           # which system owns a file, and its entry
 node docs/atlas/atlas.mjs <word ...>       # systems and glossary terms mentioning every word
+node docs/atlas/atlas.mjs overview         # the overview and every end-to-end flow
 node docs/atlas/atlas.mjs check            # every file on the map, every name real
 node docs/atlas/atlas.mjs render [out]     # one self-contained HTML page
 node docs/atlas/atlas.mjs changed [commit] # systems whose files changed since a commit
@@ -88,13 +89,25 @@ node docs/atlas/atlas.mjs changed [commit] # systems whose files changed since a
 
 ## Cost
 
-A build is not cheap: each drafting agent reads its systems' code, and each
-fact-checker reads it again. Measured builds:
+**A build is not cheap.** Each drafting agent reads its systems' code and the
+project's instruction files, and each fact-checker reads them again. Measured
+on 2026-10-16:
 
-{{COST_TABLE}}
+| Repository | Stack | Files mapped | Lines | Systems | Subagents | Subagent tokens | Wall time |
+|---|---|---|---|---|---|---|---|
+| ParaFlow | Rust + React/TS (Tauri), PowerShell | 59 | ~17k | 13 | 3 drafting, 3 fact-check | 1,381,950 | 21 min |
+| httpie/cli | Python | 267 | ~28k | 18 | 5 drafting, 3 fact-check | 2,219,440 | 26 min |
 
-`/system-atlas:update` costs a fraction of that, in proportion to how many
-systems changed.
+Both came to about **80 subagent tokens per line** that `atlas inventory`
+reports (lockfiles included), or 100-125k per system. Most of those tokens are
+re-reads of cached context, so what you pay depends on your plan and on
+prompt caching; on a subscription it counts against your usage. The main
+session adds its own share on top (it was not metered separately in these
+runs). The build skill asks for your go-ahead after the inventory, with this
+estimate.
+
+An update is far cheaper: in the ParaFlow test, a change to one default and
+one moved component took 38 seconds in the main session, with no subagents.
 
 ## What the check proves, and what it does not
 
@@ -122,12 +135,26 @@ build time and `/system-atlas:update` are for; nothing automatic replaces a
 re-read.
 
 Every assertion has a stable code, and the plugin's test suite injects, for
-each code, the defect it exists for and requires that exact code to fail
-(`npm test`: {{DEFECT_COUNT}} injected defects across all 39 codes). That
-discipline found a real hole in the first version: the "sections print in
-order" assertion read its label list from the renderer it was checking, so a
-reordered renderer stayed green. The check now pins its own copy of the
-labels and checks that each field prints under its own label.
+each of the 39 codes, the defect it exists for and requires that exact code to
+fail (`npm test`: 63 injected defects, in the data, the repo, the config and
+the CLI's own code). That discipline found a real hole in the first version:
+the "sections print in order" assertion read its label list from the renderer
+it was checking, so a reordered renderer stayed green. The check now keeps its
+own copy of the labels and checks that each field prints under its own label.
+
+## What the builds found
+
+The fact-checks changed 47 things in ParaFlow's drafts (3 claims flatly wrong)
+and 57 in httpie's (6 wrong, two of them in flows the orchestrating session
+wrote itself). Along the way the agents reported code issues for the owners
+to triage: in ParaFlow, a download that finished but failed to unpack is
+retried with a byte range past the file's end, which a server refuses, so
+every retry fails; a test script defaulting
+to the cleanup server's port, and a README that still describes a 120-second
+buffer and a microphone that never closes; in httpie, release workflows that
+read `github.events` (not a context), and a formatter-plugin grouping that
+uses `itertools.groupby` without sorting. The atlas records structure and
+behaviour, and these were left for the projects' owners.
 
 ## Configuration: `docs/atlas/atlas.config.json`
 
@@ -158,10 +185,11 @@ folder names, is literal.
 ## The atlas format
 
 `atlas.json` holds `title`, `about`, `overview`, `groups` (`id`, `name`,
-`blurb`), `systems`, `flows` (end-to-end paths whose steps name systems) and a
-`glossary`. Each system has: `id`, `group`, `name`, `oneLiner`, `summary`,
-`journey` (steps), `owns` (globs), `keyFiles` (`path`, `what`), `models`,
-`jobs` (`name`, `kind`, `ref`, `when`, `what`), `switches` (`name`, `what`),
+`blurb`), `systems`, `flows` (end-to-end paths whose steps name systems), a
+`glossary` and `verified` (the commit the prose was last checked against).
+Each system has: `id`, `group`, `name`, `oneLiner`, `summary`, `journey`
+(steps), `owns` (globs), `keyFiles` (`path`, `what`), `models`, `jobs`
+(`name`, `kind`, `ref`, `when`, `what`), `switches` (`name`, `what`),
 `connects` (`to`, `why`), `rules`, `checks` and `watchOuts`. The field rules
 the drafting agents follow are in
 [`skills/build/reference/fields.md`](skills/build/reference/fields.md).
@@ -169,17 +197,16 @@ the drafting agents follow are in
 Describe structure and behaviour, never live state, secrets or environment
 values: the atlas is committed, and often public.
 
-## Examples
-
-{{EXAMPLES}}
-
 ## Limits
 
 - The check covers the map and the names, not the meaning (above).
-- A build is only as good as its fact-check; findings are reports, and the
-  build skill spot-checks the cited lines before accepting them.
-- Glob ownership is by path. A file that serves two systems can be owned by
-  both, but the atlas has no finer grain than a file.
+- A build is only as good as its fact-check. Findings are reports, so the build
+  skill opens the cited lines of the flatly-wrong ones before accepting them.
+- `changed` maps files to the systems that own them. A fact repeated in
+  another system's entry is found only by searching for the old value, which
+  the update skill does.
+- Ownership is by path. A file that serves two systems can be owned by both,
+  but the atlas has no finer grain than a file.
 - The lookup and the check need Node 18+. A project without Node can still
   keep the atlas, but CI needs a Node step.
 
@@ -187,13 +214,14 @@ values: the atlas is committed, and often public.
 
 ```
 npm install
-npm run check    # typecheck, dist/atlas.mjs freshness, the test suite
+npm run check    # typecheck, dist/atlas.mjs freshness, the test suite, this repo's own atlas
 npm run build    # rebuild dist/atlas.mjs after changing src/ or templates/
 ```
 
 `dist/atlas.mjs` is committed: it is what projects vendor and what the skills
-run. `claude plugin validate .claude-plugin/plugin.json` and
-`claude plugin validate .` check the manifests.
+run. This repository maps itself in `docs/atlas/`. `claude plugin validate
+.claude-plugin/plugin.json` and `claude plugin validate .` check the
+manifests.
 
 ## License
 
