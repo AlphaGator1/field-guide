@@ -118,6 +118,9 @@ ol.journey li::marker { color: var(--muted); font-variant-numeric: tabular-nums;
 .empty-note { font-size: 0.9rem; color: var(--muted); margin: 0; }
 
 .lower { padding-block: 18px 40px; display: grid; gap: 34px; }
+/* Grid children default to min-width: auto, which lets the wide jobs table stretch the page
+   instead of scrolling inside .tablewrap. */
+.lower > * { min-width: 0; }
 .lower h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 4px; }
 .lower .sub { margin: 0 0 12px; color: var(--muted); font-size: 0.9rem; max-width: 70ch; }
 .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }

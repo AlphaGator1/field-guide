@@ -39,6 +39,14 @@ Then run `ATLAS check` to see what the map itself is missing.
 For each listed system, the question is: which sentences in its entry did
 these changes make untrue, incomplete or stale?
 
+`changed` maps files to their OWNERS, but other systems' entries, the flows
+and the glossary often repeat a fact (a default, a limit, a flag name, a file
+name). So for every value the diff changes or removes, search the whole atlas
+for the OLD value too: `ATLAS <old value>` and, for numbers with units, a quick
+`grep` of atlas.json. (In testing, a default changed in settings.rs was also
+stated in the pipeline's journey and the docs system's watch-outs, neither of
+which owns settings.rs.)
+
 - **Four or fewer systems:** do it here. For each one, print the entry
   (`ATLAS <id>`), read `git diff <commit> -- <its changed files>` and the
   changed code, and correct the entry: an edit to that one entry in
