@@ -12,7 +12,7 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node test/run.mjs",
-    "check": "npm run typecheck && node scripts/build.mjs --verify && node test/run.mjs"
+    "check": "npm run typecheck && node scripts/build.mjs --verify && node test/run.mjs && node dist/atlas.mjs --dir docs/atlas check"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

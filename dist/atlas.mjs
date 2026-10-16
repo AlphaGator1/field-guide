@@ -690,7 +690,8 @@ function init(dirArg, force) {
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}
 `);
     const found = Object.keys(config.addons);
-    out.push(`Wrote ${rel(repoRoot, configPath)}: ${all.length} files; add-ons detected: ${found.length ? found.join(", ") : "none"}.`);
+    const own = `${rel(repoRoot, dir)}/`;
+    out.push(`Wrote ${rel(repoRoot, configPath)}: ${all.filter((p) => !p.startsWith(own)).length} files to map; add-ons detected: ${found.length ? found.join(", ") : "none"}.`);
   }
   const ignore = join3(dir, ".gitignore");
   if (!existsSync2(ignore)) {
