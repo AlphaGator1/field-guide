@@ -1,5 +1,10 @@
 # Field Guide: notes for Claude sessions
 
+**Names:** this project is **field-guide** (the product is "Field Guide"). It
+was generalized from SiliconExchange's internal tool, which keeps the name
+**System Atlas**. Never call this project System Atlas, and never call theirs
+field-guide.
+
 This repo is a Claude Code plugin (`.claude-plugin/`, `skills/`) plus the
 dependency-free CLI that projects vendor (`dist/guide.mjs`, built from `src/`).
 It maps itself: orient with `node dist/guide.mjs --dir docs/field-guide` (the
