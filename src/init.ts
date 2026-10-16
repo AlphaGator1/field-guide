@@ -23,7 +23,8 @@ export function instructionFiles(all: string[]): string[] {
 
 export function detectAddons(root: string, all: string[]): Config["addons"] {
   const addons: Config["addons"] = {}
-  if (all.some((p) => p.endsWith(".prisma"))) addons.models = { preset: "prisma", files: all.filter((p) => p.endsWith(".prisma")) }
+  // The preset's own glob, never a frozen file list: a new schema file must be read too.
+  if (all.some((p) => p.endsWith(".prisma"))) addons.models = { preset: "prisma", files: ["**/*.prisma"] }
   else if (all.includes("manage.py") && all.some((p) => /(^|\/)models(\.py|\/[^/]+\.py)$/.test(p))) addons.models = { preset: "django", files: ["**/models.py", "**/models/*.py"] }
   if (all.includes("package.json")) {
     try {

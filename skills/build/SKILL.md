@@ -29,6 +29,10 @@ in step 6.
    rebuild from scratch).
 4. Note the start time (`node -e "console.log(new Date().toISOString())"`). You
    report wall time and token use at the end.
+5. Name this run's work folder `RUN` = `<atlas folder>/.build/<YYYYMMDD-HHMM>/`
+   from that time. Every agent writes there and every merge reads that folder
+   only: `.build/` survives between sessions (it is gitignored), and merging an
+   older run's files would silently undo newer text.
 
 ## 1. Vendor the CLI and detect the stack
 
@@ -62,7 +66,13 @@ read every source file: that is the drafting agents' job.
 
 Tell the user the size (files, lines) and the cost estimate before going
 further: see "Cost" at the end of this file. If they have not already agreed
-to the cost, ask now.
+to the cost, ask now. If they decline, offer to delete what `init` wrote (the
+atlas folder's `atlas.mjs`, `atlas.config.json`, `README.md`, `.gitignore`).
+
+The atlas folder must be a subfolder of the repository (the CLI refuses the
+root), and `atlas.json` is machine-written: if the project runs a formatter
+over JSON, add the atlas folder to its ignore file (for example
+`.prettierignore`), or every merge will look like a reformat.
 
 ## 3. Propose the systems, and get them confirmed
 
@@ -86,7 +96,10 @@ none), `?` is one character, `{a,b}` is either; everything else is literal.
 Prefer folder globs; list single files only at the root.
 
 Run `ATLAS inventory --unowned` until it reports 0 unowned files and no dead
-globs.
+globs. The file list includes files git does not track yet. A real new file
+gets claimed; a scratch file (notes, a local dump) must be deleted or
+gitignored, never claimed: its glob would match nothing in a clean clone and
+fail the check in CI.
 
 Then show the user the proposal as one compact table (group, system id, what
 it covers in a few words, file count) and ask them to confirm or change it.
@@ -99,11 +112,19 @@ when the user replies. Do not start drafting before the user confirms.
 
 Split the systems into batches of 3 to 5, keeping connected systems together;
 use at most 7 batches. Read `PLUGIN/skills/build/reference/drafting-prompt.md`
-and `PLUGIN/skills/build/reference/fields.md`. For each batch, fill the prompt:
+and `PLUGIN/skills/build/reference/fields.md`. For each batch, fill every
+placeholder (use absolute paths: subagents may run from another folder):
+- `{{PROJECT}}`: the project's name; `{{ONE_LINE}}`: what it is, in one line;
+  `{{ROOT}}`: the repository root; `{{READER}}`: the main reader the user named.
+- `{{IDS}}`: this batch's system ids; `{{ALL_IDS}}`: every system id.
+- `{{PREASSIGNED}}`: what the skeleton already fills for this batch, as a
+  clause (", plus pre-assigned `checks` for x and y"), or nothing; and any
+  add-on duty (for example "claim every package.json script as a job").
 - `{{INSTRUCTION_FILES}}`: name the instruction and rule files relevant to that
-  batch explicitly. Subagents do not load the project's rules on their own.
-- `{{CLI}}`: the vendored CLI path; `{{ATLAS_JSON}}`: the atlas path;
-  `{{OUT}}`: `<atlas folder>/.build/draft-<n>.json`;
+  batch explicitly, with the sections that matter for a very long one.
+  Subagents do not load the project's rules on their own.
+- `{{CLI}}`: the vendored CLI's path; `{{ATLAS_JSON}}`: atlas.json's path;
+  `{{OUT}}`: `RUN/draft-<n>.json`;
   `{{STACK_HINTS}}`: a sentence on where things live in this stack (for example
   "Rust commands in src-tauri/src are called from the React UI through invoke()").
 - `{{FIELDS}}`: paste fields.md verbatim.
@@ -111,8 +132,10 @@ and `PLUGIN/skills/build/reference/fields.md`. For each batch, fill the prompt:
 Launch every batch's general-purpose subagent in ONE message so they run in
 parallel. Record each agent's token usage from its result.
 
-When all are done: `ATLAS merge <atlas folder>/.build/draft-*.json`. Act on
-every note it prints: move a file between systems' `owns`, or drop the note.
+When all are done: `ATLAS merge RUN` (a folder argument merges its .json files
+in name order; never pass a shell wildcard, which PowerShell does not expand).
+Act on every note it prints: move a file between systems' `owns`, or drop the
+note.
 
 ## 5. The big picture
 
@@ -123,9 +146,10 @@ Write the top level yourself, from the index (`ATLAS`) and the entries
 - `flows`: two to four end-to-end paths (`name`, `steps` of `{ system, text }`),
   each three to eight steps, every step naming a system.
 - The glossary: drop duplicates and terms nobody needs; keep the rest short.
-Write these with a small JSON file merged the same way
-(`ATLAS merge <atlas folder>/.build/top.json`; it accepts `about`, `overview`,
-`title`, `flows` and `glossary`).
+Write these as `RUN/top.json` and merge just that file
+(`ATLAS merge RUN/top.json`). It accepts `about`, `overview`, `title`, `flows`,
+`glossary`, and `remove: { "glossary": [terms], "flows": [names] }` to delete
+a duplicate term or a renamed flow.
 
 ## 6. Adversarial fact-check (parallel subagents)
 
@@ -133,12 +157,12 @@ Use 2 or 3 fact-checkers (1 or 2 for fewer than 10 systems). Partition the
 systems so that no agent checks a batch it drafted. Fill
 `PLUGIN/skills/build/reference/factcheck-prompt.md` the same way (`{{SCOPE}}`
 stays empty on a first build; `{{OUT}}` is
-`<atlas folder>/.build/fix-<n>.json`; for ONE of the agents, `{{TOP_LEVEL}}` asks it
+`RUN/fix/fix-<n>.json`; for ONE of the agents, `{{TOP_LEVEL}}` asks it
 to check `about`, `overview` and the flows too, printed by `ATLAS overview`, and to
 put a corrected top-level `flows`, `about` or `overview` in its output; for the
 others it stays empty) and launch all of them in ONE message.
 
-Then `ATLAS merge <atlas folder>/.build/fix-*.json`. It prints how many fields
+Then `ATLAS merge RUN/fix`. It prints how many fields
 changed and the findings by severity: that count is the measure of what the
 fact-check caught. A finding is a report, not proof: open the cited
 `path:line` for at least three WRONG findings (all of them when there are ten
@@ -147,8 +171,10 @@ or fewer) and revert any that does not hold.
 ## 7. Check until green
 
 Run `ATLAS check` and fix every failure: an unowned file goes into a system's
-`owns`; a switch the check cannot find gets its exact identifier or is
-dropped; an entry over the size ratchet gets shorter prose (never raise
+`owns` (or, if the check lists it as not yet in git and it is scratch, gets
+deleted or gitignored); a switch the check cannot find in the code gets its
+exact identifier, or moves into the prose if only a dependency or the docs
+read it; an entry over the size ratchet gets shorter prose (never raise
 `entryMaxChars` to fit). Repeat until it passes.
 
 ## 8. Wire it in (ask the user)

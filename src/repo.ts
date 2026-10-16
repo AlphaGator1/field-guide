@@ -1,11 +1,11 @@
 /**
  * Everything that touches the disk: finding the atlas folder and the repo
  * root, loading the config, and listing the repo's files. Local only: the one
- * subprocess is `git` (ls-files, rev-parse, diff), never the network.
+ * subprocess is `git` (ls-files, rev-parse, diff, log), never the network.
  */
 import { execFileSync } from "child_process"
-import { existsSync, readdirSync, readFileSync, statSync } from "fs"
-import { dirname, join, relative, resolve } from "path"
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs"
+import { dirname, isAbsolute, join, relative, resolve } from "path"
 import { matchesAny, normalizePath } from "./lookup"
 import type { Atlas, Config } from "./types"
 
@@ -22,6 +22,10 @@ export const DEFAULT_CONFIG: Config = {
   addons: {},
 }
 
+/** Windows and macOS file systems ignore case by default, so path comparisons must too. */
+export const CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin"
+const fold = (p: string) => (CASE_INSENSITIVE ? p.toLowerCase() : p)
+
 export type Ctx = {
   /** Absolute folder holding atlas.config.json. */
   dir: string
@@ -32,6 +36,8 @@ export type Ctx = {
   root: string
   /** The atlas folder, repo-relative (its own files are never on the map). */
   dirRel: string
+  /** True for the atlas's own files: everything in its folder, plus atlas.json and the config wherever they are. */
+  isAtlasFile: (repoRelPath: string) => boolean
 }
 
 export class UsageError extends Error {}
@@ -60,11 +66,37 @@ export function findGitRoot(from: string): string | undefined {
   }
 }
 
+/** A path made repo-relative, or undefined when it lies outside the repo. */
+export function repoRelative(root: string, abs: string): string | undefined {
+  const r = normalizePath(relative(root, abs))
+  return r && !r.startsWith("../") && r !== ".." && !isAbsolute(r) ? r : undefined
+}
+
+/**
+ * A path argument as a session holds it (absolute, relative to the current
+ * folder, Windows-style or ./-prefixed) made repo-relative. Undefined when it
+ * points outside the repo.
+ */
+export function resolveArgPath(root: string, cwd: string, arg: string): string | undefined {
+  const a = arg.trim()
+  if (!a) return undefined
+  if (isAbsolute(a) || /^[A-Za-z]:[\\/]/.test(a)) return repoRelative(root, resolve(a))
+  const fromCwd = resolve(cwd, a)
+  if (existsSync(fromCwd)) return repoRelative(root, fromCwd)
+  return normalizePath(a)
+}
+
 export function loadContext(dir: string): Ctx {
   const raw = readJson<Partial<Config>>(join(dir, CONFIG_FILE))
   const config: Config = { ...DEFAULT_CONFIG, ...raw, addons: { ...(raw.addons ?? {}) } }
   const root = config.root ? resolve(dir, config.root) : findGitRoot(dir) ?? process.cwd()
-  return { dir, config, atlasPath: resolve(dir, config.atlas), root, dirRel: normalizePath(relative(root, dir)) }
+  const dirRel = repoRelative(root, dir)
+  if (!dirRel) throw new UsageError(`The atlas folder (${dir}) must be a subfolder of the repo root (${root}): its own files are kept off the map by folder.`)
+  const atlasPath = resolve(dir, config.atlas)
+  const own = new Set([repoRelative(root, atlasPath), repoRelative(root, join(dir, CONFIG_FILE))].filter((p): p is string => !!p).map(fold))
+  const prefix = fold(`${dirRel}/`)
+  const isAtlasFile = (p: string) => fold(p).startsWith(prefix) || own.has(fold(p))
+  return { dir, config, atlasPath, root, dirRel, isAtlasFile }
 }
 
 export function readJson<T>(path: string): T {
@@ -87,36 +119,51 @@ export function loadAtlas(ctx: Ctx): Atlas {
 
 const WALK_SKIP = new Set([".git", "node_modules"])
 
+function gitList(root: string, args: string[]): string[] {
+  let out: string
+  try {
+    out = execFileSync("git", ["ls-files", "-z", ...args], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"] })
+  } catch {
+    throw new UsageError(`git ls-files failed in ${root}. Is it a git repository? Set "files": "walk" in ${CONFIG_FILE} to walk the folder instead.`)
+  }
+  return out.split("\0").filter(Boolean).map(normalizePath)
+}
+
 /**
- * Every file in the repo, repo-relative. "git" mode lists tracked files plus
- * untracked ones that .gitignore does not exclude, so a new file is on the
+ * Every file in the repo, relative to the root. "git" mode lists tracked files
+ * plus untracked ones that .gitignore does not exclude, so a new file is on the
  * check's radar before it is committed; deleted-but-unstaged files drop out.
+ * Paths keep their exact case: they are what "exists" is checked against.
  */
 export function listRepoFiles(root: string, mode: Config["files"]): string[] {
-  let paths: string[]
-  if (mode === "walk") {
-    paths = walk(root, "")
-  } else {
-    let out: string
-    try {
-      out = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
-        cwd: root, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"],
-      })
-    } catch {
-      throw new UsageError(`git ls-files failed in ${root}. Is it a git repository? Set "files": "walk" in ${CONFIG_FILE} to walk the folder instead.`)
-    }
-    paths = out.split("\0").filter(Boolean).map(normalizePath)
-  }
+  const paths = mode === "walk" ? walk(root, "") : gitList(root, ["--cached", "--others", "--exclude-standard"])
   return [...new Set(paths)].filter((p) => isFile(join(root, p))).sort()
+}
+
+/** Files git does not track yet (empty in walk mode). */
+export function listUntracked(root: string, mode: Config["files"]): Set<string> {
+  return new Set(mode === "walk" ? [] : gitList(root, ["--others", "--exclude-standard"]))
 }
 
 function walk(root: string, rel: string): string[] {
   const out: string[] = []
-  for (const name of readdirSync(join(root, rel))) {
+  let names: string[]
+  try {
+    names = readdirSync(join(root, rel))
+  } catch {
+    return out
+  }
+  for (const name of names) {
     if (WALK_SKIP.has(name)) continue
     const p = rel ? `${rel}/${name}` : name
-    if (statSync(join(root, p)).isDirectory()) out.push(...walk(root, p))
-    else out.push(p)
+    try {
+      // lstat: a link is listed as a file at most, never followed (a junction to a parent would loop).
+      const st = lstatSync(join(root, p))
+      if (st.isDirectory()) out.push(...walk(root, p))
+      else if (st.isFile()) out.push(p)
+    } catch {
+      // A dangling entry: skip it.
+    }
   }
   return out
 }
@@ -129,19 +176,44 @@ function isFile(p: string): boolean {
   }
 }
 
-export function exists(root: string, rel: string): boolean {
-  return existsSync(join(root, normalizePath(rel)))
+/**
+ * Whether a path the atlas names is in the repo: a listed file (exact case, so
+ * a case-only typo fails on Windows as it would on Linux CI), or a folder that
+ * holds one. A gitignored build output does not count.
+ */
+export function inRepo(all: string[], rel: string): boolean {
+  const p = normalizePath(rel).replace(/\/+$/, "")
+  if (!p) return false
+  return all.includes(p) || all.some((f) => f.startsWith(`${p}/`))
 }
 
-/** The files the map must cover: include, minus exclude, minus the atlas folder itself. */
+/** The files the map must cover: include, minus exclude, minus the atlas's own files. */
 export function universe(ctx: Ctx, all: string[]): string[] {
-  const own = ctx.dirRel ? `${ctx.dirRel}/` : null
-  return all.filter((p) => (!own || !p.startsWith(own)) && matchesAny(ctx.config.include, p) && !matchesAny(ctx.config.exclude, p))
+  return all.filter((p) => !ctx.isAtlasFile(p) && matchesAny(ctx.config.include, p) && !matchesAny(ctx.config.exclude, p))
 }
 
 export function git(root: string, args: string[]): string | undefined {
   try {
     return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 28 }).trim()
+  } catch {
+    return undefined
+  }
+}
+
+/** Text of a repo file, or undefined for a binary or oversized one. UTF-16 (common for Windows scripts) is decoded. */
+export function readText(root: string, rel: string, maxBytes = 2_000_000): string | undefined {
+  try {
+    const p = join(root, rel)
+    if (statSync(p).size > maxBytes) return undefined
+    const buf = readFileSync(p)
+    if (buf[0] === 0xff && buf[1] === 0xfe) return buf.subarray(2).toString("utf16le")
+    if (buf[0] === 0xfe && buf[1] === 0xff) {
+      const swapped = Buffer.from(buf.subarray(2))
+      swapped.swap16()
+      return swapped.toString("utf16le")
+    }
+    if (buf.subarray(0, 8000).includes(0)) return undefined
+    return buf.toString("utf8")
   } catch {
     return undefined
   }

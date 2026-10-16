@@ -100,6 +100,10 @@
         {
           "name": "--dir",
           "what": "Points the CLI at a non-default atlas folder."
+        },
+        {
+          "name": "--search",
+          "what": "Searches every word, even when the first one is a command name."
         }
       ],
       "connects": [
@@ -126,7 +130,8 @@
       ],
       "watchOuts": [
         "Never add a subcommand without adding it to SUBCOMMANDS, because a system with that id could then never be printed.",
-        "Always list files through git ls-files with --others, because a new untracked file must fail the check before it is committed."
+        "Always list files through git ls-files with --others, because a new untracked file must fail the check before it is committed.",
+        "Never let a command accept stray words, because `atlas stamp duty` would move the update baseline instead of searching."
       ]
     },
     {
@@ -236,7 +241,7 @@
       "group": "cli",
       "name": "Build and update helpers",
       "oneLiner": "Vendors the CLI, inventories the repo, merges agent output and tracks changes.",
-      "summary": "The commands the skills drive. init copies the CLI into the project and detects a config; inventory lists the files by folder; merge folds drafting and fact-check JSON into atlas.json and counts changed fields; changed maps files changed since a commit to their systems; stamp records the verified commit.",
+      "summary": "The commands the skills drive. init copies the CLI into the project and detects a config; inventory lists the files by folder; merge folds drafting and fact-check JSON (a file, or a run folder read in name order) into atlas.json, counts changed fields and can remove glossary terms and flows; changed maps files changed since a commit to their systems (paths read with -z, relative to the root, so non-ASCII names and monorepo packages work); stamp records the verified commit.",
       "journey": [
         "init vendors the CLI and writes the config, README and .gitignore",
         "inventory shows folder sizes and the instruction files to name in prompts",

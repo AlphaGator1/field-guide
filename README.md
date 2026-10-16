@@ -29,7 +29,7 @@ Code-graph tools parse your source into nodes and edges. They are fast and
 good at one question: "what calls this?" An atlas answers a different one:
 "what is this part of the system for, how does it work, and what will bite me
 if I change it?" We ran both on the same commit of a Tauri app (ParaFlow: Rust
-backend, React front end, PowerShell scripts, 57 files), using Graphify both
+backend, React front end, PowerShell scripts, 57 files at that commit), using Graphify both
 as the open-source package (code-only mode) and as the hosted service.
 
 | | Graphify, local (0.9.73, code-only) | Graphify, hosted | System Atlas |
@@ -80,7 +80,7 @@ teammates run it with plain `node`, without the plugin:
 node docs/atlas/atlas.mjs                  # every system, one line each
 node docs/atlas/atlas.mjs <id>             # one system in full (--json: as stored)
 node docs/atlas/atlas.mjs <path>           # which system owns a file, and its entry
-node docs/atlas/atlas.mjs <word ...>       # systems and glossary terms mentioning every word
+node docs/atlas/atlas.mjs --search <word ...>  # entries, flows, overview and glossary mentioning every word
 node docs/atlas/atlas.mjs overview         # the overview and every end-to-end flow
 node docs/atlas/atlas.mjs check            # every file on the map, every name real
 node docs/atlas/atlas.mjs render [out]     # one self-contained HTML page
@@ -120,8 +120,8 @@ no environment variables. It fails when:
 - anything the atlas names is gone: a key file, a rule file, a check (a
   package script or a test path), a job (a workflow file, a Vercel cron, a
   package script, a make target, a script file), a switch (its exact
-  identifier must still appear in the code), a data model, a connection or a
-  flow step pointing at no system;
+  identifier must still appear, as a whole word, in a non-doc file on the
+  map), a data model, a connection or a flow step pointing at no system;
 - an optional stack add-on finds something unclaimed: every data model
   (presets for Prisma, SQL `CREATE TABLE`, Django, SQLAlchemy, or your own
   pattern), every package.json script, every GitHub workflow, every Vercel
@@ -136,11 +136,21 @@ re-read.
 
 Every assertion has a stable code, and the plugin's test suite injects, for
 each of the 39 codes, the defect it exists for and requires that exact code to
-fail (`npm test`: 63 injected defects, in the data, the repo, the config and
-the CLI's own code). That discipline found a real hole in the first version:
+fail (`npm test`: 72 injected defects, in the data, the repo, the config and
+the CLI's own code, plus guards that valid repos stay green). That discipline found a real hole in the first version:
 the "sections print in order" assertion read its label list from the renderer
 it was checking, so a reordered renderer stayed green. The check now keeps its
 own copy of the labels and checks that each field prints under its own label.
+
+An independent adversarial review of 0.1.0 then found 21 issues, 5 of them
+serious, each reproduced on a copy of the test repo: the switch check accepted
+a switch that survived only in the docs (it had already let two proxy
+variables into the httpie atlas that only the `requests` library reads); old
+fact-check files left in `.build/` could be merged again and undo newer text;
+`changed` misread monorepo packages and non-ASCII file names; and the lookup's
+search could not see flows, schedules or the overview, so an update could miss
+a stale value. All 21 are fixed, and each fix has a test that goes red on the
+old build and green on this one.
 
 ## What the builds found
 
@@ -177,7 +187,11 @@ behaviour, and these were left for the projects' owners.
 }
 ```
 
-`/system-atlas:build` writes this for you from what it detects. Globs: `*`
+`/system-atlas:build` writes this for you from what it detects. An optional
+`prose` list of globs names the files that count as docs, not code, for the
+switch check (default: Markdown, text and reStructuredText files, changelogs
+and licences); a plugin repo, whose SKILL.md frontmatter is behaviour, narrows
+it. Globs: `*`
 stays in one folder, `**` crosses folders (`**/` also matches none), `?` is one
 character, `{a,b}` is either; everything else, including `[id]` and `(group)`
 folder names, is literal.
@@ -209,6 +223,10 @@ values: the atlas is committed, and often public.
   but the atlas has no finer grain than a file.
 - The lookup and the check need Node 18+. A project without Node can still
   keep the atlas, but CI needs a Node step.
+- The check lists untracked files too, so a new file is caught before it is
+  committed. A scratch file must be deleted or gitignored, not claimed.
+- The atlas folder must be a subfolder of the repo, and `atlas.json` is
+  machine-written: keep it out of JSON formatters.
 
 ## Development
 

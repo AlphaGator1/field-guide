@@ -10,8 +10,8 @@ person first (an owner, a new contributor) and for an AI coding session second.
   - `node {{DIR}}/atlas.mjs` lists every system, one line each;
   - `node {{DIR}}/atlas.mjs <id>` prints one system in full;
   - `node {{DIR}}/atlas.mjs <path>` names the system that owns a file;
-  - `node {{DIR}}/atlas.mjs <word>` finds the systems and glossary terms that
-    mention a word.
+  - `node {{DIR}}/atlas.mjs --search <words>` finds everything that mentions
+    them: entries, flows, the overview and the glossary.
 - **`node {{DIR}}/atlas.mjs check`** fails when a file is claimed by no
   system, or when anything the atlas names (a key file, rule, check, job,
   switch, data model, connection) no longer exists. It also keeps each printed
@@ -22,6 +22,8 @@ person first (an owner, a new contributor) and for an AI coding session second.
   `exclude`) and which stack add-ons the check runs.
 - **`atlas.mjs`** is a vendored copy of the System Atlas CLI. Do not edit it;
   replace it with a newer release.
+- `atlas.json` is machine-written (merges rewrite it as 2-space JSON): keep
+  this folder out of JSON formatters such as Prettier.
 
 ## What the check cannot see
 

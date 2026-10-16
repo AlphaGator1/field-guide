@@ -4,11 +4,11 @@
 // Reads files and runs local git only: no network. License: MIT.
 
 // src/cli.ts
-import { dirname as dirname2 } from "path";
+import { existsSync as existsSync3 } from "fs";
+import { dirname as dirname2, join as join5 } from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 
 // src/check.ts
-import { readFileSync as readFileSync2, statSync as statSync2 } from "fs";
 import { join as join2 } from "path";
 
 // src/types.ts
@@ -138,32 +138,35 @@ function renderOverview(atlas) {
   out.push("", `Glossary: ${(atlas.glossary ?? []).length} terms (atlas <word> searches them).`);
   return out.join("\n");
 }
+function strings(v) {
+  if (typeof v === "string") return [v];
+  if (Array.isArray(v)) return v.flatMap(strings);
+  if (v && typeof v === "object") return Object.values(v).flatMap(strings);
+  return [];
+}
 function search(atlas, query) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return { systems: [], mentions: [], terms: [] };
+  if (!words.length) return { systems: [], mentions: [], terms: [], top: [] };
   const all = (text) => {
     const t = text.toLowerCase();
     return words.every((w) => t.includes(w));
   };
   const head = (s) => `${s.id} ${s.name} ${s.oneLiner} ${s.summary}`;
-  const deep = (s) => [
-    ...s.journey,
-    ...s.watchOuts,
-    ...s.keyFiles.map((k) => `${k.path} ${k.what}`),
-    ...s.jobs.map((j) => `${j.name} ${j.ref} ${j.what}`),
-    ...s.switches.map((w) => `${w.name} ${w.what}`),
-    ...s.models
-  ].join(" ");
   const systems = atlas.systems.filter((s) => all(head(s)));
-  const mentions = atlas.systems.filter((s) => !systems.includes(s) && all(`${head(s)} ${deep(s)}`));
+  const mentions = atlas.systems.filter((s) => !systems.includes(s) && all(strings(s).join(" ")));
   const terms = (atlas.glossary ?? []).filter((g) => all(`${g.term} ${g.meaning}`));
-  return { systems, mentions, terms };
+  const top = [
+    ...atlas.about && all(atlas.about) ? [`about: ${atlas.about}`] : [],
+    ...atlas.overview && all(atlas.overview) ? [`overview: ${atlas.overview}`] : [],
+    ...(atlas.flows ?? []).flatMap((f) => (f.steps ?? []).filter((st) => all(`${f.name} ${st.system} ${st.text}`)).map((st) => `flow "${f.name}", ${st.system}: ${st.text}`))
+  ];
+  return { systems, mentions, terms, top };
 }
 
 // src/repo.ts
 import { execFileSync } from "child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
-import { dirname, join, relative, resolve } from "path";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
+import { dirname, isAbsolute, join, relative, resolve } from "path";
 var CONFIG_FILE = "atlas.config.json";
 var DEFAULT_DIR = "docs/atlas";
 var DEFAULT_CONFIG = {
@@ -175,6 +178,8 @@ var DEFAULT_CONFIG = {
   entryMaxChars: 12e3,
   addons: {}
 };
+var CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin";
+var fold = (p) => CASE_INSENSITIVE ? p.toLowerCase() : p;
 var UsageError = class extends Error {
 };
 function findAtlasDir(argDir, scriptDir) {
@@ -197,11 +202,29 @@ function findGitRoot(from) {
     d = up;
   }
 }
+function repoRelative(root, abs) {
+  const r = normalizePath(relative(root, abs));
+  return r && !r.startsWith("../") && r !== ".." && !isAbsolute(r) ? r : void 0;
+}
+function resolveArgPath(root, cwd, arg) {
+  const a = arg.trim();
+  if (!a) return void 0;
+  if (isAbsolute(a) || /^[A-Za-z]:[\\/]/.test(a)) return repoRelative(root, resolve(a));
+  const fromCwd = resolve(cwd, a);
+  if (existsSync(fromCwd)) return repoRelative(root, fromCwd);
+  return normalizePath(a);
+}
 function loadContext(dir) {
   const raw = readJson(join(dir, CONFIG_FILE));
   const config = { ...DEFAULT_CONFIG, ...raw, addons: { ...raw.addons ?? {} } };
   const root = config.root ? resolve(dir, config.root) : findGitRoot(dir) ?? process.cwd();
-  return { dir, config, atlasPath: resolve(dir, config.atlas), root, dirRel: normalizePath(relative(root, dir)) };
+  const dirRel = repoRelative(root, dir);
+  if (!dirRel) throw new UsageError(`The atlas folder (${dir}) must be a subfolder of the repo root (${root}): its own files are kept off the map by folder.`);
+  const atlasPath = resolve(dir, config.atlas);
+  const own = new Set([repoRelative(root, atlasPath), repoRelative(root, join(dir, CONFIG_FILE))].filter((p) => !!p).map(fold));
+  const prefix = fold(`${dirRel}/`);
+  const isAtlasFile = (p) => fold(p).startsWith(prefix) || own.has(fold(p));
+  return { dir, config, atlasPath, root, dirRel, isAtlasFile };
 }
 function readJson(path) {
   let text;
@@ -220,33 +243,39 @@ function loadAtlas(ctx) {
   return readJson(ctx.atlasPath);
 }
 var WALK_SKIP = /* @__PURE__ */ new Set([".git", "node_modules"]);
-function listRepoFiles(root, mode) {
-  let paths;
-  if (mode === "walk") {
-    paths = walk(root, "");
-  } else {
-    let out;
-    try {
-      out = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
-        cwd: root,
-        encoding: "utf8",
-        maxBuffer: 1 << 28,
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-    } catch {
-      throw new UsageError(`git ls-files failed in ${root}. Is it a git repository? Set "files": "walk" in ${CONFIG_FILE} to walk the folder instead.`);
-    }
-    paths = out.split("\0").filter(Boolean).map(normalizePath);
+function gitList(root, args) {
+  let out;
+  try {
+    out = execFileSync("git", ["ls-files", "-z", ...args], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"] });
+  } catch {
+    throw new UsageError(`git ls-files failed in ${root}. Is it a git repository? Set "files": "walk" in ${CONFIG_FILE} to walk the folder instead.`);
   }
+  return out.split("\0").filter(Boolean).map(normalizePath);
+}
+function listRepoFiles(root, mode) {
+  const paths = mode === "walk" ? walk(root, "") : gitList(root, ["--cached", "--others", "--exclude-standard"]);
   return [...new Set(paths)].filter((p) => isFile(join(root, p))).sort();
+}
+function listUntracked(root, mode) {
+  return new Set(mode === "walk" ? [] : gitList(root, ["--others", "--exclude-standard"]));
 }
 function walk(root, rel2) {
   const out = [];
-  for (const name of readdirSync(join(root, rel2))) {
+  let names;
+  try {
+    names = readdirSync(join(root, rel2));
+  } catch {
+    return out;
+  }
+  for (const name of names) {
     if (WALK_SKIP.has(name)) continue;
     const p = rel2 ? `${rel2}/${name}` : name;
-    if (statSync(join(root, p)).isDirectory()) out.push(...walk(root, p));
-    else out.push(p);
+    try {
+      const st = lstatSync(join(root, p));
+      if (st.isDirectory()) out.push(...walk(root, p));
+      else if (st.isFile()) out.push(p);
+    } catch {
+    }
   }
   return out;
 }
@@ -257,16 +286,34 @@ function isFile(p) {
     return false;
   }
 }
-function exists(root, rel2) {
-  return existsSync(join(root, normalizePath(rel2)));
+function inRepo(all, rel2) {
+  const p = normalizePath(rel2).replace(/\/+$/, "");
+  if (!p) return false;
+  return all.includes(p) || all.some((f) => f.startsWith(`${p}/`));
 }
 function universe(ctx, all) {
-  const own = ctx.dirRel ? `${ctx.dirRel}/` : null;
-  return all.filter((p) => (!own || !p.startsWith(own)) && matchesAny(ctx.config.include, p) && !matchesAny(ctx.config.exclude, p));
+  return all.filter((p) => !ctx.isAtlasFile(p) && matchesAny(ctx.config.include, p) && !matchesAny(ctx.config.exclude, p));
 }
 function git(root, args) {
   try {
     return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 28 }).trim();
+  } catch {
+    return void 0;
+  }
+}
+function readText(root, rel2, maxBytes = 2e6) {
+  try {
+    const p = join(root, rel2);
+    if (statSync(p).size > maxBytes) return void 0;
+    const buf = readFileSync(p);
+    if (buf[0] === 255 && buf[1] === 254) return buf.subarray(2).toString("utf16le");
+    if (buf[0] === 254 && buf[1] === 255) {
+      const swapped = Buffer.from(buf.subarray(2));
+      swapped.swap16();
+      return swapped.toString("utf16le");
+    }
+    if (buf.subarray(0, 8e3).includes(0)) return void 0;
+    return buf.toString("utf8");
   } catch {
     return void 0;
   }
@@ -316,7 +363,7 @@ var CHECK_CODES = [
 ];
 var MODEL_PRESETS = {
   prisma: { files: ["**/*.prisma"], pattern: "^\\s*model\\s+(\\w+)\\s*\\{", flags: "gm" },
-  sql: { files: ["**/*.sql"], pattern: 'create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?(?:[\\w"`\\[\\]]+\\.)?["`\\[]?(\\w+)', flags: "gim" },
+  sql: { files: ["**/*.sql"], pattern: '^\\s*create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?(?:[\\w"`\\[\\]]+\\.)?["`\\[]?(\\w+)', flags: "gim" },
   django: { files: ["**/models.py", "**/models/*.py"], pattern: "^class\\s+(\\w+)\\s*\\([^)]*\\bmodels\\.Model\\b", flags: "gm" },
   sqlalchemy: { files: ["**/*.py"], pattern: "^class\\s+(\\w+)\\s*\\([^)]*\\b(?:Base|DeclarativeBase|db\\.Model)\\b", flags: "gm" }
 };
@@ -332,13 +379,28 @@ var ENTRY_SECTIONS = [
   "Checks:",
   "Owns:"
 ];
+var KIND_LABELS = {
+  "github-action": "GitHub Action",
+  "vercel-cron": "Vercel Cron",
+  "package-script": "package script",
+  "make-target": "make target",
+  file: "script",
+  external: "external"
+};
+var DEFAULT_PROSE = [
+  "**/*.{md,mdx,markdown,rst,txt,adoc,asciidoc,MD,TXT,RST}",
+  "**/{CHANGELOG,CHANGES,HISTORY,AUTHORS,LICENSE,LICENCE,NOTICE,COPYING}*"
+];
 var ID_FORMAT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-var MAX_TEXT_BYTES = 2e6;
 var str = (v) => typeof v === "string" ? v : "";
 var nonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
 var arr = (v) => Array.isArray(v) ? v : [];
 var sample = (items, max = 25) => items.length > max ? `${items.slice(0, max).join(", ")} (+${items.length - max} more)` : items.join(", ");
 var dupes = (items) => items.filter((x, i) => items.indexOf(x) !== i);
+var escapeRe2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function identifierPattern(name) {
+  return new RegExp(`(?<![A-Za-z0-9_])${escapeRe2(name)}(?![A-Za-z0-9_])`);
+}
 function normalize(raw) {
   const systems = arr(raw?.systems).map((s) => {
     const o = s && typeof s === "object" ? s : {};
@@ -348,39 +410,31 @@ function normalize(raw) {
   });
   return { ...raw, title: str(raw?.title), groups: arr(raw?.groups), systems, flows: arr(raw?.flows), glossary: arr(raw?.glossary) };
 }
-function readText(root, rel2) {
+function readPackageScripts(ctx, all, file = "package.json") {
+  if (!all.includes(file)) return void 0;
   try {
-    const p = join2(root, rel2);
-    if (statSync2(p).size > MAX_TEXT_BYTES) return void 0;
-    const buf = readFileSync2(p);
-    if (buf.subarray(0, 8e3).includes(0)) return void 0;
-    return buf.toString("utf8");
-  } catch {
-    return void 0;
-  }
-}
-function readPackageScripts(root, file = "package.json") {
-  if (!exists(root, file)) return void 0;
-  try {
-    const pkg = readJson(join2(root, file));
+    const pkg = readJson(join2(ctx.root, file));
     return pkg.scripts && typeof pkg.scripts === "object" ? pkg.scripts : void 0;
   } catch {
     return void 0;
   }
 }
-function readVercelCrons(root, file = "vercel.json") {
-  if (!exists(root, file)) return void 0;
+function readVercelCrons(ctx, all, file = "vercel.json") {
+  if (!all.includes(file)) return void 0;
   try {
-    const v = readJson(join2(root, file));
+    const v = readJson(join2(ctx.root, file));
     return arr(v.crons).map((c) => str(c?.path)).filter(Boolean);
   } catch {
     return void 0;
   }
 }
-function makeTargets(root) {
+function makeTargets(ctx, all) {
   for (const f of ["Makefile", "makefile", "GNUmakefile"]) {
-    const text = exists(root, f) ? readText(root, f) : void 0;
-    if (text !== void 0) return new Set([...text.matchAll(/^([A-Za-z0-9_.\-/]+)\s*:(?!=)/gm)].map((m) => m[1]));
+    const text = all.includes(f) ? readText(ctx.root, f) : void 0;
+    if (text === void 0) continue;
+    const names = /* @__PURE__ */ new Set();
+    for (const m of text.matchAll(/^([^\s:=#][^:=#]*?)\s*::?(?!=)/gm)) for (const t of m[1].split(/\s+/)) if (t) names.add(t);
+    return names;
   }
   return /* @__PURE__ */ new Set();
 }
@@ -435,23 +489,32 @@ function runCheck(ctx, raw) {
   ok("shape.owns-keyfiles", "every system owns at least one glob and names at least one key file", thin.length === 0, sample(thin.map((s) => s.id)));
   const empty = atlas.groups.filter((g) => !systems.some((s) => s.group === str(g?.id)));
   ok("shape.group-used", "every group has at least one system", empty.length === 0, sample(empty.map((g) => str(g?.id))));
-  const todos = JSON.stringify(raw ?? {}).match(/"TODO\b/g)?.length ?? 0;
+  const todos = JSON.stringify(raw ?? {}).match(/"\s*TODO\s*"/g)?.length ?? 0;
   ok("shape.no-todo", "no TODO placeholder is left", todos === 0, `${todos} left`);
   section = "coverage";
-  const deadInclude = cfg.include.filter((g) => !all.some((p) => globToRegExp(g).test(p)));
+  const candidates = all.filter((p) => !ctx.isAtlasFile(p));
+  const deadInclude = cfg.include.filter((g) => !candidates.some((p) => globToRegExp(g).test(p)));
   ok(
     "coverage.include",
     `every include glob matches a file, and the map has files to cover (${files.length})`,
     deadInclude.length === 0 && files.length > 0,
     deadInclude.length ? `matches nothing (renamed or deleted folder?): ${sample(deadInclude)}` : "include minus exclude left no files"
   );
+  const untracked = listUntracked(ctx.root, cfg.files);
   const unowned = files.filter((p) => ownersOf(atlas, p).length === 0);
-  ok("coverage.unowned", `every file is owned by a system (${files.length} files)`, unowned.length === 0, `unowned: ${sample(unowned, 40)}`);
+  const unownedTracked = unowned.filter((p) => !untracked.has(p));
+  const unownedNew = unowned.filter((p) => untracked.has(p));
+  ok(
+    "coverage.unowned",
+    `every file is owned by a system (${files.length} files)`,
+    unowned.length === 0,
+    [unownedTracked.length ? `unowned: ${sample(unownedTracked, 40)}` : "", unownedNew.length ? `unowned and not yet in git (claim the real ones; delete or gitignore scratch files, never claim them): ${sample(unownedNew, 40)}` : ""].filter(Boolean).join("\n        ")
+  );
   const dead = systems.flatMap((s) => s.owns.filter((g) => !files.some((p) => globToRegExp(g).test(p))).map((g) => `${s.id}: ${g}`));
   ok("coverage.dead-glob", "every owns glob matches at least one file on the map", dead.length === 0, sample(dead));
   section = "names";
-  const badKeys = systems.flatMap((s) => s.keyFiles.filter((k) => !nonEmpty(k?.path) || !exists(ctx.root, k.path) || !nonEmpty(k?.what)).map((k) => `${s.id}: ${str(k?.path)}`));
-  ok("names.key-files", "every key file exists and says what it is", badKeys.length === 0, sample(badKeys));
+  const badKeys = systems.flatMap((s) => s.keyFiles.filter((k) => !nonEmpty(k?.path) || !inRepo(all, k.path) || !nonEmpty(k?.what)).map((k) => `${s.id}: ${str(k?.path)}`));
+  ok("names.key-files", "every key file is in the repo (exact case) and says what it is", badKeys.length === 0, sample(badKeys));
   const badLinks = systems.flatMap((s) => s.connects.filter((l) => !ids.includes(str(l?.to)) || l.to === s.id || !nonEmpty(l?.why)).map((l) => `${s.id} -> ${str(l?.to)}`));
   ok("names.connects", "every connection points at another system and says why", badLinks.length === 0, sample(badLinks));
   const flows = arr(atlas.flows);
@@ -465,19 +528,19 @@ function runCheck(ctx, raw) {
   const badTerms = terms.filter((g) => !nonEmpty(g?.term) || !nonEmpty(g?.meaning)).map((g) => str(g?.term) || "(empty term)");
   const termDupes = dupes(terms.map((g) => str(g?.term).trim().toLowerCase()));
   ok("names.glossary", "every glossary entry has a term and a meaning, and no term repeats", badTerms.length === 0 && termDupes.length === 0, sample([...badTerms, ...termDupes.map((t) => `repeated: ${t}`)]));
-  const badRules = systems.flatMap((s) => s.rules.filter((r) => !nonEmpty(r) || !exists(ctx.root, r)).map((r) => `${s.id}: ${r}`));
-  ok("names.rules", "every rule or instruction file the atlas names exists", badRules.length === 0, sample(badRules));
-  const scripts = readPackageScripts(ctx.root, cfg.addons.packageScripts?.file) ?? readPackageScripts(ctx.root) ?? {};
-  const checkResolves = (c) => Object.prototype.hasOwnProperty.call(scripts, c) || nonEmpty(c) && (exists(ctx.root, c) || all.some((p) => globToRegExp(normalizePath(c)).test(p)));
+  const badRules = systems.flatMap((s) => s.rules.filter((r) => !nonEmpty(r) || !inRepo(all, r)).map((r) => `${s.id}: ${r}`));
+  ok("names.rules", "every rule or instruction file the atlas names is in the repo", badRules.length === 0, sample(badRules));
+  const scripts = readPackageScripts(ctx, all, cfg.addons.packageScripts?.file) ?? readPackageScripts(ctx, all) ?? {};
+  const checkResolves = (c) => Object.prototype.hasOwnProperty.call(scripts, c) || nonEmpty(c) && (inRepo(all, c) || all.some((p) => globToRegExp(normalizePath(c)).test(p)));
   const badChecks = systems.flatMap((s) => s.checks.filter((c) => !checkResolves(str(c))).map((c) => `${s.id}: ${c}`));
-  ok("names.checks", "every check is a package.json script or a test file/glob that exists", badChecks.length === 0, sample(badChecks));
-  const crons = readVercelCrons(ctx.root, cfg.addons.vercelCrons?.file) ?? [];
-  const targets = makeTargets(ctx.root);
+  ok("names.checks", "every check is a package.json script or a test file/glob in the repo", badChecks.length === 0, sample(badChecks));
+  const crons = readVercelCrons(ctx, all, cfg.addons.vercelCrons?.file) ?? [];
+  const targets = makeTargets(ctx, all);
   const badJobs = systems.flatMap((s) => s.jobs.filter((j) => {
     if (![j?.name, j?.when, j?.what, j?.ref].every(nonEmpty)) return true;
     switch (j.kind) {
       case "github-action":
-        return !exists(ctx.root, j.ref);
+        return !all.includes(normalizePath(j.ref));
       case "vercel-cron":
         return !crons.includes(j.ref);
       case "package-script":
@@ -485,7 +548,7 @@ function runCheck(ctx, raw) {
       case "make-target":
         return !targets.has(j.ref);
       case "file":
-        return !exists(ctx.root, j.ref);
+        return !all.includes(normalizePath(j.ref));
       case "external":
         return false;
       default:
@@ -493,20 +556,22 @@ function runCheck(ctx, raw) {
     }
   }).map((j) => `${s.id}: ${str(j?.kind)} ${str(j?.ref)}`));
   ok("names.jobs", `every job has a name, when and what, and a real ref for its kind (${JOB_KINDS.join(" | ")})`, badJobs.length === 0, sample(badJobs));
-  const switchNames = [...new Set(systems.flatMap((s) => s.switches.map((w) => str(w?.name))))];
   const emptySwitch = systems.flatMap((s) => s.switches.filter((w) => !nonEmpty(w?.name) || !nonEmpty(w?.what)).map(() => `${s.id}: a switch with no name or no what`));
-  const pending = new Set(switchNames.filter(nonEmpty));
-  if (pending.size) {
-    const own = ctx.dirRel ? `${ctx.dirRel}/` : "\0";
-    for (const p of all) {
-      if (!pending.size) break;
-      if (p.startsWith(own)) continue;
-      const text = readText(ctx.root, p);
-      if (text === void 0 || text.includes('id="atlas-data"')) continue;
-      for (const n of [...pending]) if (text.includes(n)) pending.delete(n);
-    }
+  const pending = new Map([...new Set(systems.flatMap((s) => s.switches.map((w) => str(w?.name))))].filter(nonEmpty).map((n) => [n, identifierPattern(n)]));
+  const prose = cfg.prose ?? DEFAULT_PROSE;
+  for (const p of files) {
+    if (!pending.size) break;
+    if (matchesAny(prose, p)) continue;
+    const text = readText(ctx.root, p);
+    if (text === void 0 || text.includes('id="atlas-data"')) continue;
+    for (const [n, re] of [...pending]) if (re.test(text)) pending.delete(n);
   }
-  ok("names.switches", "every switch is named in the code (its exact identifier appears in a repo file)", pending.size === 0 && emptySwitch.length === 0, sample([...emptySwitch, ...[...pending].map((n) => `not found: ${n}`)]));
+  ok(
+    "names.switches",
+    "every switch is named in the code (its exact identifier appears in a non-doc file on the map)",
+    pending.size === 0 && emptySwitch.length === 0,
+    sample([...emptySwitch, ...[...pending.keys()].map((n) => `not found in code: ${n}`)])
+  );
   const modelsAddon = cfg.addons.models;
   const models = modelsAddon ? modelNames(ctx, all, modelsAddon) : [];
   const claimedModels = [...new Set(systems.flatMap((s) => s.models.map(str)))];
@@ -525,7 +590,7 @@ function runCheck(ctx, raw) {
   }
   const ps = cfg.addons.packageScripts;
   if (ps) {
-    const pkgScripts = readPackageScripts(ctx.root, ps.file);
+    const pkgScripts = readPackageScripts(ctx, all, ps.file);
     const re = new RegExp(ps.match ?? ".*");
     const names = Object.keys(pkgScripts ?? {}).filter((k) => re.test(k));
     ok("addon.scripts.found", `${ps.file ?? "package.json"} has scripts matching /${ps.match ?? ".*"}/ (${names.length})`, names.length > 0, "none found: fix addons.packageScripts or remove it");
@@ -544,7 +609,7 @@ function runCheck(ctx, raw) {
   }
   const vc = cfg.addons.vercelCrons;
   if (vc) {
-    const list = readVercelCrons(ctx.root, vc.file) ?? [];
+    const list = readVercelCrons(ctx, all, vc.file) ?? [];
     ok("addon.crons.found", `${vc.file ?? "vercel.json"} has crons (${list.length})`, list.length > 0, "none found: fix addons.vercelCrons or remove it");
     const jobRefs = new Set(systems.flatMap((s) => s.jobs.filter((j) => j?.kind === "vercel-cron").map((j) => j.ref)));
     const unclaimed = list.filter((c) => !jobRefs.has(c));
@@ -564,6 +629,7 @@ function runCheck(ctx, raw) {
   const badSections = [];
   const incomplete = [];
   const tooLong = [];
+  const sysName = (id) => systems.find((x) => x.id === id)?.name ?? id;
   for (const s of systems) {
     const text = renderSystem(atlas, s);
     const at = ENTRY_SECTIONS.map((l) => text.indexOf(`
@@ -573,38 +639,46 @@ ${l}`));
       badSections.push(s.id);
       continue;
     }
-    const slice = (k) => text.slice(at[k], k + 1 < at.length ? at[k + 1] : text.length);
+    const linesOf = (k) => new Set(text.slice(at[k] + 1, k + 1 < at.length ? at[k + 1] : text.length).split("\n"));
+    const listed = (k, items) => items.length ? items.map((i) => `  - ${i}`) : [`${ENTRY_SECTIONS[k]} none`];
+    const inline = (k, items) => [`${ENTRY_SECTIONS[k]} ${items.join(", ") || "none"}`];
     const expected = [
-      [-1, [s.oneLiner, s.summary]],
-      [0, s.journey],
-      [1, s.watchOuts],
-      [2, s.connects.map((c) => str(c?.why))],
-      [3, s.keyFiles.map((k) => str(k?.path))],
-      [4, s.jobs.map((j) => str(j?.ref))],
-      [5, s.switches.map((w) => str(w?.name))],
-      [6, s.models],
-      [7, s.rules],
-      [8, s.checks],
-      [9, s.owns]
+      [0, s.journey.map((j, i) => `  ${i + 1}. ${j}`)],
+      [1, listed(1, s.watchOuts)],
+      [2, listed(2, s.connects.map((c) => `${sysName(str(c?.to))} [${str(c?.to)}]: ${str(c?.why)}`))],
+      [3, listed(3, s.keyFiles.map((k) => `${str(k?.path)} \u2014 ${str(k?.what)}`))],
+      [4, listed(4, s.jobs.map((j) => `${str(j?.name)} (${str(j?.when)}; ${KIND_LABELS[str(j?.kind)] ?? str(j?.kind)} ${str(j?.ref)}) \u2014 ${str(j?.what)}`))],
+      [5, listed(5, s.switches.map((w) => `${str(w?.name)} \u2014 ${str(w?.what)}`))],
+      [6, inline(6, s.models)],
+      [7, inline(7, s.rules)],
+      [8, inline(8, s.checks)],
+      [9, inline(9, s.owns)]
     ];
-    const missing = expected.flatMap(([k, items]) => items.filter((t) => nonEmpty(t) && !(k < 0 ? text.slice(0, at[0]) : slice(k)).includes(t)).map((t) => `${k < 0 ? "header" : ENTRY_SECTIONS[k]} ${t}`));
+    const head = text.slice(0, at[0]);
+    const missing = [
+      ...[s.oneLiner, s.summary].filter((t) => nonEmpty(t) && !head.includes(t)).map((t) => `header: ${t.slice(0, 40)}`),
+      ...expected.flatMap(([k, lines]) => {
+        const have = linesOf(k);
+        return lines.filter((l) => !have.has(l)).map((l) => `${ENTRY_SECTIONS[k]} ${l.trim().slice(0, 60)}`);
+      })
+    ];
     if (missing.length) incomplete.push(`${s.id}: ${sample(missing, 3)}`);
     if (text.length > cfg.entryMaxChars) tooLong.push(`${s.id} (${text.length})`);
   }
   ok("lookup.entry-sections", "every entry opens with its name and id and prints every section in order", badSections.length === 0, sample(badSections));
-  ok("lookup.entry-complete", "every entry prints every step, watch-out, link, key file, job, switch, model, rule, check and glob under its own label", incomplete.length === 0, sample(incomplete, 10));
+  ok("lookup.entry-complete", "every entry prints every step, watch-out, link, key file, job, switch, model, rule, check and glob in full, under its own label", incomplete.length === 0, sample(incomplete, 10));
   ok("lookup.entry-size", `every entry stays under ${cfg.entryMaxChars} characters (a ratchet: trim the prose, never raise it to fit)`, tooLong.length === 0, sample(tooLong));
   const index = renderIndex(atlas);
   const misIndexed = systems.filter((s) => index.split(`
-  ${s.id} \u2014 `).length + (index.startsWith(`  ${s.id} \u2014 `) ? 1 : 0) !== 2);
+  ${s.id} \u2014 `).length !== 2);
   ok("lookup.index", "the index lists every system exactly once", misIndexed.length === 0, sample(misIndexed.map((s) => s.id)));
   const lost = systems.flatMap((s) => {
     const p = files.find((f) => matchesAny(s.owns, f));
     if (!p) return [];
-    const winPath = `.\\${p.replace(/\//g, "\\")}`;
-    return ownersOf(atlas, winPath).some((o) => o.id === s.id) ? [] : [`${s.id}: ${winPath}`];
+    const forms = [`.\\${p.replace(/\//g, "\\")}`, join2(ctx.root, p)];
+    return forms.filter((f) => !ownersOf(atlas, resolveArgPath(ctx.root, ctx.root, f) ?? f).some((o) => o.id === s.id)).map((f) => `${s.id}: ${f}`);
   });
-  ok("lookup.owner-path", "a Windows or ./-prefixed path finds the same owner as the map", lost.length === 0, sample(lost));
+  ok("lookup.owner-path", "a Windows, ./-prefixed or absolute path finds the same owner as the map", lost.length === 0, sample(lost));
   return results;
 }
 function formatResults(results, header) {
@@ -625,12 +699,12 @@ function formatResults(results, header) {
 }
 
 // src/init.ts
-import { copyFileSync, existsSync as existsSync2, mkdirSync, readFileSync as readFileSync3, writeFileSync } from "fs";
+import { copyFileSync, existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, writeFileSync } from "fs";
 import { join as join3, relative as relative2, resolve as resolve2 } from "path";
 import { fileURLToPath } from "url";
 
 // templates/atlas-readme.md
-var atlas_readme_default = '# System Atlas\n\nA plain-English map of every system in this repository: what it does, how it\nworks, where its code lives, the jobs it runs, the switches that gate it, what\nit connects to, and the rules and checks that guard it. It is written for a\nperson first (an owner, a new contributor) and for an AI coding session second.\n\n- **`atlas.json`** is the source of truth. It is large, so read it through the\n  lookup instead of opening it:\n  - `node {{DIR}}/atlas.mjs` lists every system, one line each;\n  - `node {{DIR}}/atlas.mjs <id>` prints one system in full;\n  - `node {{DIR}}/atlas.mjs <path>` names the system that owns a file;\n  - `node {{DIR}}/atlas.mjs <word>` finds the systems and glossary terms that\n    mention a word.\n- **`node {{DIR}}/atlas.mjs check`** fails when a file is claimed by no\n  system, or when anything the atlas names (a key file, rule, check, job,\n  switch, data model, connection) no longer exists. It also keeps each printed\n  entry under a size ratchet (`entryMaxChars`): trim the prose, never raise it.\n- **`node {{DIR}}/atlas.mjs render`** writes `atlas.html`, one self-contained\n  page to browse the map.\n- **`atlas.config.json`** says which files must be on the map (`include`,\n  `exclude`) and which stack add-ons the check runs.\n- **`atlas.mjs`** is a vendored copy of the System Atlas CLI. Do not edit it;\n  replace it with a newer release.\n\n## What the check cannot see\n\nIt proves that every file is on the map and every name is real. It does not\nprove that the prose is still true. A system whose behaviour changes without a\nfile appearing or disappearing keeps passing, so **when you change how a\nsystem works, re-read its entry and fix the sentences that moved.**\n\n## Updating it\n\n1. A new file goes into the `owns` globs of the system it belongs to. Globs\n   are matched against the repo-relative path: `*` stays inside one folder,\n   `**` crosses folders (`**/` also matches no folder), `?` is one character,\n   `{a,b}` is either; everything else, `[id]` and `(group)` included, is literal.\n2. Describe structure and behaviour, never live state ("currently enabled"),\n   and never secrets, environment values or account ids.\n3. Run `node {{DIR}}/atlas.mjs check` until it passes.\n4. `node {{DIR}}/atlas.mjs changed` lists the systems whose files changed\n   since the atlas was last verified; re-read those entries, then\n   `node {{DIR}}/atlas.mjs stamp` records the new commit.\n';
+var atlas_readme_default = '# System Atlas\n\nA plain-English map of every system in this repository: what it does, how it\nworks, where its code lives, the jobs it runs, the switches that gate it, what\nit connects to, and the rules and checks that guard it. It is written for a\nperson first (an owner, a new contributor) and for an AI coding session second.\n\n- **`atlas.json`** is the source of truth. It is large, so read it through the\n  lookup instead of opening it:\n  - `node {{DIR}}/atlas.mjs` lists every system, one line each;\n  - `node {{DIR}}/atlas.mjs <id>` prints one system in full;\n  - `node {{DIR}}/atlas.mjs <path>` names the system that owns a file;\n  - `node {{DIR}}/atlas.mjs --search <words>` finds everything that mentions\n    them: entries, flows, the overview and the glossary.\n- **`node {{DIR}}/atlas.mjs check`** fails when a file is claimed by no\n  system, or when anything the atlas names (a key file, rule, check, job,\n  switch, data model, connection) no longer exists. It also keeps each printed\n  entry under a size ratchet (`entryMaxChars`): trim the prose, never raise it.\n- **`node {{DIR}}/atlas.mjs render`** writes `atlas.html`, one self-contained\n  page to browse the map.\n- **`atlas.config.json`** says which files must be on the map (`include`,\n  `exclude`) and which stack add-ons the check runs.\n- **`atlas.mjs`** is a vendored copy of the System Atlas CLI. Do not edit it;\n  replace it with a newer release.\n- `atlas.json` is machine-written (merges rewrite it as 2-space JSON): keep\n  this folder out of JSON formatters such as Prettier.\n\n## What the check cannot see\n\nIt proves that every file is on the map and every name is real. It does not\nprove that the prose is still true. A system whose behaviour changes without a\nfile appearing or disappearing keeps passing, so **when you change how a\nsystem works, re-read its entry and fix the sentences that moved.**\n\n## Updating it\n\n1. A new file goes into the `owns` globs of the system it belongs to. Globs\n   are matched against the repo-relative path: `*` stays inside one folder,\n   `**` crosses folders (`**/` also matches no folder), `?` is one character,\n   `{a,b}` is either; everything else, `[id]` and `(group)` included, is literal.\n2. Describe structure and behaviour, never live state ("currently enabled"),\n   and never secrets, environment values or account ids.\n3. Run `node {{DIR}}/atlas.mjs check` until it passes.\n4. `node {{DIR}}/atlas.mjs changed` lists the systems whose files changed\n   since the atlas was last verified; re-read those entries, then\n   `node {{DIR}}/atlas.mjs stamp` records the new commit.\n';
 
 // src/init.ts
 var INSTRUCTION_GLOBS = [
@@ -653,7 +727,7 @@ function instructionFiles(all) {
 }
 function detectAddons(root, all) {
   const addons = {};
-  if (all.some((p) => p.endsWith(".prisma"))) addons.models = { preset: "prisma", files: all.filter((p) => p.endsWith(".prisma")) };
+  if (all.some((p) => p.endsWith(".prisma"))) addons.models = { preset: "prisma", files: ["**/*.prisma"] };
   else if (all.includes("manage.py") && all.some((p) => /(^|\/)models(\.py|\/[^/]+\.py)$/.test(p))) addons.models = { preset: "django", files: ["**/models.py", "**/models/*.py"] };
   if (all.includes("package.json")) {
     try {
@@ -750,7 +824,7 @@ function inventory(ctx, atlas, depth, unownedOnly) {
 }
 function lineCount(path) {
   try {
-    const buf = readFileSync3(path);
+    const buf = readFileSync2(path);
     if (buf.subarray(0, 8e3).includes(0)) return 0;
     let n = 0;
     for (const b of buf) if (b === 10) n++;
@@ -761,28 +835,44 @@ function lineCount(path) {
 }
 
 // src/maintain.ts
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "fs";
-import { relative as relative3 } from "path";
+import { readdirSync as readdirSync2, readFileSync as readFileSync3, statSync as statSync2, writeFileSync as writeFileSync2 } from "fs";
+import { join as join4, relative as relative3 } from "path";
 function saveAtlas(path, atlas) {
   let eol = "\n";
   try {
-    if (readFileSync4(path, "utf8").includes("\r\n")) eol = "\r\n";
+    if (readFileSync3(path, "utf8").includes("\r\n")) eol = "\r\n";
   } catch {
   }
   writeFileSync2(path, `${JSON.stringify(atlas, null, 2)}
 `.replace(/\n/g, eol));
 }
 var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function expandInputs(inputs) {
+  return inputs.flatMap((p) => {
+    let st;
+    try {
+      st = statSync2(p);
+    } catch {
+      throw new UsageError(`No such file or folder: ${p}`);
+    }
+    if (!st.isDirectory()) return [p];
+    const files = readdirSync2(p).filter((f) => f.endsWith(".json")).sort().map((f) => join4(p, f));
+    if (!files.length) throw new UsageError(`${p} holds no .json files.`);
+    return files;
+  });
+}
 function merge(ctx, atlas, inputs, dryRun) {
-  if (!inputs.length) throw new UsageError("atlas merge <draft.json ...>: name at least one file.");
+  if (!inputs.length) throw new UsageError("atlas merge <file|folder ...>: name at least one.");
+  const files = expandInputs(inputs);
   const changed2 = /* @__PURE__ */ new Map();
   const unknown = [];
   const findings = [];
   const notes = [];
   let termsAdded = 0;
   let termsChanged = 0;
+  let termsRemoved = 0;
   let topChanged = 0;
-  for (const file of inputs) {
+  for (const file of files) {
     const raw = readJson(file);
     const draft = Array.isArray(raw) ? { systems: raw } : raw;
     for (const d of draft.systems ?? []) {
@@ -822,6 +912,16 @@ function merge(ctx, atlas, inputs, dryRun) {
       else continue;
       topChanged++;
     }
+    for (const term of draft.remove?.glossary ?? []) {
+      const before = atlas.glossary?.length ?? 0;
+      atlas.glossary = (atlas.glossary ?? []).filter((g) => g.term.trim().toLowerCase() !== term.trim().toLowerCase());
+      termsRemoved += before - atlas.glossary.length;
+    }
+    for (const name of draft.remove?.flows ?? []) {
+      const before = atlas.flows?.length ?? 0;
+      atlas.flows = (atlas.flows ?? []).filter((f) => f.name !== name);
+      topChanged += before - atlas.flows.length;
+    }
     for (const k of ["title", "about", "overview"]) {
       if (typeof draft[k] === "string" && draft[k] !== atlas[k]) {
         atlas[k] = draft[k];
@@ -833,7 +933,7 @@ function merge(ctx, atlas, inputs, dryRun) {
   }
   if (!dryRun) saveAtlas(ctx.atlasPath, atlas);
   const fields = [...changed2.values()].reduce((n, f) => n + f.length, 0);
-  const out = [`${dryRun ? "Would change" : "Changed"} ${fields} system fields across ${changed2.size} systems; glossary +${termsAdded} new, ${termsChanged} reworded; ${topChanged} flows/title/overview updates.`];
+  const out = [`${dryRun ? "Would change" : "Changed"} ${fields} system fields across ${changed2.size} systems; glossary +${termsAdded} new, ${termsChanged} reworded, ${termsRemoved} removed; ${topChanged} flows/title/overview updates (from ${files.length} file${files.length === 1 ? "" : "s"}).`];
   for (const [id, f] of changed2) out.push(`  ${id}: ${f.join(", ")}`);
   if (findings.length) {
     const by = /* @__PURE__ */ new Map();
@@ -844,26 +944,40 @@ function merge(ctx, atlas, inputs, dryRun) {
   if (notes.length) out.push("", "Notes from the agents (act on each: move a file, fix a rule, or drop it):", ...notes.map((n) => `  - ${n}`));
   return out.join("\n");
 }
-function changed(ctx, atlas, refArg, asJson) {
-  const lastTouch = () => git(ctx.root, ["log", "-1", "--format=%H", "--", normalizePath(relative3(ctx.root, ctx.atlasPath))]) || void 0;
-  const ref = refArg ?? atlas.verified?.commit ?? lastTouch();
-  if (!ref) throw new UsageError("atlas changed <commit>: no commit given, atlas.json has no verified.commit, and git has no commit touching it (run `atlas stamp` after a build or update).");
-  if (git(ctx.root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) === void 0) throw new UsageError(`${ref} is not a commit in this repository.`);
-  const diff = git(ctx.root, ["diff", "--name-status", "-M", ref, "--"]) ?? "";
+function parseNameStatusZ(out) {
+  const parts = out.split("\0");
   const changes = [];
-  for (const line of diff.split("\n").filter(Boolean)) {
-    const [status, a, b] = line.split("	");
-    if (status.startsWith("R")) {
-      changes.push({ status: "D", path: normalizePath(a) }, { status: "A", path: normalizePath(b) });
+  for (let i = 0; i < parts.length && parts[i]; ) {
+    const status = parts[i];
+    if (/^[RC]/.test(status)) {
+      if (status[0] === "R") changes.push({ status: "D", path: normalizePath(parts[i + 1]) });
+      changes.push({ status: "A", path: normalizePath(parts[i + 2]) });
+      i += 3;
     } else {
-      changes.push({ status: status[0], path: normalizePath(a) });
+      changes.push({ status: status[0], path: normalizePath(parts[i + 1]) });
+      i += 2;
     }
   }
-  const tracked = new Set((git(ctx.root, ["ls-files", "--others", "--exclude-standard", "-z"]) ?? "").split("\0").filter(Boolean).map(normalizePath));
-  for (const p of tracked) if (!changes.some((c) => c.path === p)) changes.push({ status: "A", path: p });
+  return changes;
+}
+var commitExists = (root, ref) => git(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) !== void 0;
+function changed(ctx, atlas, refArg, asJson) {
+  const atlasRel = normalizePath(relative3(ctx.root, ctx.atlasPath));
+  const lastTouch = () => git(ctx.root, ["log", "-1", "--format=%H", "--", atlasRel]) || void 0;
+  const notes = [];
+  let ref = refArg ?? atlas.verified?.commit ?? lastTouch();
+  if (!ref) throw new UsageError("atlas changed <commit>: no commit given, atlas.json has no verified.commit, and git has no commit touching it (run `atlas stamp` after a build or update).");
+  if (!commitExists(ctx.root, ref)) {
+    const fallback = refArg ? void 0 : lastTouch();
+    if (!fallback || !commitExists(ctx.root, fallback)) throw new UsageError(`${ref} is not a commit in this repository (a shallow clone or a rewritten branch?). Pass a commit: atlas changed <commit>.`);
+    notes.push(`verified.commit ${ref.slice(0, 12)} is not in this repository; starting from the last commit that touched atlas.json instead (${fallback.slice(0, 12)}).`);
+    ref = fallback;
+  }
+  const changes = parseNameStatusZ(git(ctx.root, ["diff", "-z", "--relative", "--name-status", "-M", ref, "--", "."]) ?? "");
+  const untracked = (git(ctx.root, ["ls-files", "-z", "--others", "--exclude-standard", "--", "."]) ?? "").split("\0").filter(Boolean).map(normalizePath);
+  for (const p of untracked) if (!changes.some((c) => c.path === p)) changes.push({ status: "A", path: p });
   const files = new Set(universe(ctx, listRepoFiles(ctx.root, ctx.config.files)));
-  const own = ctx.dirRel ? `${ctx.dirRel}/` : "\0";
-  const relevant = changes.filter((c) => !c.path.startsWith(own));
+  const relevant = changes.filter((c) => !ctx.isAtlasFile(c.path));
   const bySystem = /* @__PURE__ */ new Map();
   const unowned = [];
   for (const c of relevant) {
@@ -875,8 +989,8 @@ function changed(ctx, atlas, refArg, asJson) {
     for (const s of owners) bySystem.set(s.id, [...bySystem.get(s.id) ?? [], c]);
   }
   const namedGone = atlas.systems.flatMap((s) => (s.keyFiles ?? []).filter((k) => relevant.some((c) => c.status === "D" && c.path === normalizePath(k.path))).map((k) => `${s.id}: ${k.path}`));
-  if (asJson) return JSON.stringify({ ref, systems: Object.fromEntries(bySystem), unowned, deletedKeyFiles: namedGone }, null, 2);
-  const out = [`${relevant.length} files changed since ${ref}; ${bySystem.size} of ${atlas.systems.length} systems own at least one.`];
+  if (asJson) return JSON.stringify({ ref, notes, systems: Object.fromEntries(bySystem), unowned, deletedKeyFiles: namedGone }, null, 2);
+  const out = [...notes, `${relevant.length} files changed since ${ref}; ${bySystem.size} of ${atlas.systems.length} systems own at least one.`];
   for (const s of atlas.systems) {
     const list = bySystem.get(s.id);
     if (!list) continue;
@@ -884,13 +998,16 @@ function changed(ctx, atlas, refArg, asJson) {
   }
   if (unowned.length) out.push("", `New files no system owns yet (${unowned.length}):`, ...unowned.map((c) => `  ${c.status} ${c.path}`));
   if (namedGone.length) out.push("", "Deleted files still named as key files:", ...namedGone.map((n) => `  ${n}`));
-  out.push("", `Review each listed system: \`git diff ${ref} -- <its files>\`, then fix the sentences that moved.`);
+  out.push("", `Review each listed system: \`git diff ${ref} -- <its files>\`, then fix the sentences that moved. Search the atlas for every old value the diff replaced, too: other entries may repeat it.`);
   return out.join("\n");
 }
 function stamp(ctx, atlas) {
   const commit = git(ctx.root, ["rev-parse", "HEAD"]);
   if (!commit) throw new UsageError("Not a git repository with a commit: nothing to stamp.");
-  const dirty = (git(ctx.root, ["status", "--porcelain"]) ?? "").split("\n").filter((l) => l && !l.slice(3).startsWith(ctx.dirRel)).length;
+  const dirty = [
+    ...(git(ctx.root, ["diff", "-z", "--relative", "--name-only", "HEAD", "--", "."]) ?? "").split("\0"),
+    ...(git(ctx.root, ["ls-files", "-z", "--others", "--exclude-standard", "--", "."]) ?? "").split("\0")
+  ].filter((p) => p && !ctx.isAtlasFile(normalizePath(p))).length;
   atlas.verified = { commit, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) };
   saveAtlas(ctx.atlasPath, atlas);
   return `Stamped atlas.json as verified against ${commit.slice(0, 12)}${dirty ? ` (note: ${dirty} uncommitted changes outside the atlas folder; stamp again after committing them)` : ""}.`;
@@ -1258,12 +1375,24 @@ function writePage(ctx, atlas, out) {
 
 // src/cli.ts
 var VERSION = true ? "0.1.0" : "dev";
+var ARITY = {
+  check: [0, 0],
+  render: [0, 1],
+  init: [0, 0],
+  inventory: [0, 0],
+  changed: [0, 1],
+  merge: [1, Infinity],
+  stamp: [0, 0],
+  overview: [0, 0],
+  help: [0, 0]
+};
 function parse(argv) {
   const flags = /* @__PURE__ */ new Map();
   const pos = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--dir" || a === "--depth") flags.set(a.slice(2), argv[++i] ?? "");
+    else if (a === "-s") flags.set("search", true);
     else if (a.startsWith("--")) flags.set(a.slice(2), true);
     else pos.push(a);
   }
@@ -1271,7 +1400,8 @@ function parse(argv) {
 }
 function main(argv) {
   const { flags, pos } = parse(argv);
-  const cmd = pos[0];
+  const searching = flags.has("search");
+  const cmd = searching ? void 0 : pos[0];
   if (flags.has("version")) {
     console.log(VERSION);
     return 0;
@@ -1279,6 +1409,13 @@ function main(argv) {
   if (flags.has("help") || cmd === "help") {
     console.log(HELP);
     return 0;
+  }
+  if (cmd && ARITY[cmd]) {
+    const [min, max] = ARITY[cmd];
+    const n = pos.length - 1;
+    if (n < min || n > max) {
+      throw new UsageError(`atlas ${cmd} takes ${max === 0 ? "no arguments" : min === max ? `${min} argument${min === 1 ? "" : "s"}` : max === Infinity ? `at least ${min}` : `at most ${max}`}; got ${n}. To search for words, use: atlas --search ${pos.join(" ")}`);
+    }
   }
   const dirFlag = typeof flags.get("dir") === "string" ? flags.get("dir") : void 0;
   if (cmd === "init") {
@@ -1326,54 +1463,64 @@ function main(argv) {
   const arg = pos.join(" ").trim();
   if (!arg) {
     console.log(renderIndex(atlas));
-    console.log("\nOne system: atlas <id> \xB7 a file's owner: atlas <path> \xB7 a word: atlas <word> \xB7 atlas help");
+    console.log("\nOne system: atlas <id> \xB7 a file's owner: atlas <path> \xB7 words: atlas <word> (or atlas --search <words>) \xB7 atlas help");
     return 0;
   }
-  const system = atlas.systems.find((s) => s.id === arg);
-  if (system) {
-    console.log(flags.has("json") ? JSON.stringify(system, null, 2) : renderSystem(atlas, system));
-    return 0;
-  }
-  const owners = ownersOf(atlas, arg);
-  const looksLikePath = /[\\/]/.test(arg) || /\.[A-Za-z0-9]+$/.test(arg);
-  if (owners.length || looksLikePath && pos.length === 1) {
-    const p = normalizePath(arg);
-    if (owners.length === 0) {
-      console.log(`No system owns ${p}. Paths are repo-relative; a new file goes into a system's "owns" in atlas.json (atlas check fails until it does).`);
-      return 1;
-    }
-    if (owners.length === 1) {
-      console.log(`${p} belongs to ${owners[0].id}.
-`);
-      console.log(renderSystem(atlas, owners[0]));
+  if (!searching) {
+    const system = atlas.systems.find((s) => s.id === arg);
+    if (system) {
+      console.log(flags.has("json") ? JSON.stringify(system, null, 2) : renderSystem(atlas, system));
       return 0;
     }
-    console.log(`${p} belongs to ${owners.length} systems; print the one you need with atlas <id>:`);
-    for (const s of owners) console.log(`  ${s.id} \u2014 ${s.name}: ${s.oneLiner}`);
-    return 0;
+    if (pos.length === 1) {
+      const rel2 = resolveArgPath(ctx.root, process.cwd(), arg);
+      const owners = rel2 ? ownersOf(atlas, rel2) : [];
+      if (rel2 && owners.length === 1) {
+        console.log(`${rel2} belongs to ${owners[0].id}.
+`);
+        console.log(renderSystem(atlas, owners[0]));
+        return 0;
+      }
+      if (rel2 && owners.length > 1) {
+        console.log(`${rel2} belongs to ${owners.length} systems; print the one you need with atlas <id>:`);
+        for (const s of owners) console.log(`  ${s.id} \u2014 ${s.name}: ${s.oneLiner}`);
+        return 0;
+      }
+      if (rel2 && existsSync3(join5(ctx.root, rel2))) {
+        console.log(`No system owns ${rel2}. A new file goes into a system's "owns" in atlas.json (atlas check fails until it does).`);
+        return 1;
+      }
+    }
   }
   const hits = search(atlas, arg);
-  if (!hits.systems.length && !hits.mentions.length && !hits.terms.length) {
-    console.log(`Nothing in the atlas mentions "${arg}". Run with no argument for the list of systems.`);
+  if (!hits.systems.length && !hits.mentions.length && !hits.terms.length && !hits.top.length) {
+    console.log(`Nothing in the atlas mentions "${arg}"${/[\\/]/.test(arg) ? ", and no file at that path is owned by a system" : ""}. Run with no argument for the list of systems.`);
     return 1;
   }
-  for (const s of hits.systems) console.log(`  ${s.id} \u2014 ${s.name}: ${s.oneLiner}`);
+  const out = [];
+  for (const s of hits.systems) out.push(`  ${s.id} \u2014 ${s.name}: ${s.oneLiner}`);
   if (hits.mentions.length) {
-    console.log(hits.systems.length ? "\nAlso mentioned in:" : "Mentioned in:");
-    for (const s of hits.mentions) console.log(`  ${s.id} \u2014 ${s.name}: ${s.oneLiner}`);
+    out.push(out.length ? "\nAlso mentioned in:" : "Mentioned in:");
+    for (const s of hits.mentions) out.push(`  ${s.id} \u2014 ${s.name}: ${s.oneLiner}`);
+  }
+  if (hits.top.length) {
+    out.push(out.length ? "\nOverview and flows:" : "Overview and flows:");
+    for (const t of hits.top) out.push(`  ${t}`);
   }
   if (hits.terms.length) {
-    console.log(hits.systems.length || hits.mentions.length ? "\nGlossary:" : "Glossary:");
-    for (const t of hits.terms) console.log(`  ${t.term} \u2014 ${t.meaning}`);
+    out.push(out.length ? "\nGlossary:" : "Glossary:");
+    for (const t of hits.terms) out.push(`  ${t.term} \u2014 ${t.meaning}`);
   }
+  console.log(out.join("\n"));
   return 0;
 }
 var HELP = `System Atlas ${VERSION}: a plain-English map of every system in this repo.
 
   atlas                       every system, one line each
   atlas <id> [--json]         one system in full (--json: as atlas.json holds it)
-  atlas <path>                which system owns a file (and its entry)
-  atlas <word ...>            systems and glossary terms mentioning every word
+  atlas <path>                which system owns a file (and its entry); absolute paths work
+  atlas <word ...>            everything that mentions every word: entries, flows, overview, glossary
+  atlas --search <word ...>   the same, even when the first word is a command name
   atlas overview              the about text, the overview and every flow, step by step
   atlas check [--json]        every file on the map, every name real; exit 1 on failure
   atlas render [out.html]     one self-contained page (default: <atlas folder>/atlas.html)
@@ -1382,7 +1529,7 @@ var HELP = `System Atlas ${VERSION}: a plain-English map of every system in this
                               the files on the map by folder, or the ones no system owns
   atlas changed [<commit>]    systems whose files changed since a commit
                               (default: verified.commit, else the last commit that touched atlas.json)
-  atlas merge <file ...> [--dry-run]
+  atlas merge <file|folder ...> [--dry-run]
                               fold draft or fact-check JSON into atlas.json; counts changed fields
   atlas stamp                 record HEAD as the commit the atlas was verified against
 

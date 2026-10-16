@@ -118,30 +118,37 @@ export function renderOverview(atlas: Atlas): string {
   return out.join("\n")
 }
 
+/** Every string inside a value (strings, arrays, objects), in order. */
+function strings(v: unknown): string[] {
+  if (typeof v === "string") return [v]
+  if (Array.isArray(v)) return v.flatMap(strings)
+  if (v && typeof v === "object") return Object.values(v as Record<string, unknown>).flatMap(strings)
+  return []
+}
+
 /**
- * Systems and glossary terms that contain EVERY word of the query
- * (case-insensitive). `systems` matched on the id, name, one-liner or
- * summary; `mentions` matched only deeper in the entry (steps, watch-outs,
- * key files, jobs, switches, models).
+ * Everything that contains EVERY word of the query (case-insensitive), so an
+ * update can find each place an old value is stated. `systems` matched on the
+ * id, name, one-liner or summary; `mentions` matched anywhere else in an entry
+ * (steps, watch-outs, links, key files, jobs, switches, models, rules, checks,
+ * owns); `top` lists matching lines of the about text, the overview and the
+ * flows; `terms` the glossary.
  */
-export function search(atlas: Atlas, query: string): { systems: System[]; mentions: System[]; terms: Term[] } {
+export function search(atlas: Atlas, query: string): { systems: System[]; mentions: System[]; terms: Term[]; top: string[] } {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
-  if (!words.length) return { systems: [], mentions: [], terms: [] }
+  if (!words.length) return { systems: [], mentions: [], terms: [], top: [] }
   const all = (text: string) => {
     const t = text.toLowerCase()
     return words.every((w) => t.includes(w))
   }
   const head = (s: System) => `${s.id} ${s.name} ${s.oneLiner} ${s.summary}`
-  const deep = (s: System) =>
-    [
-      ...s.journey, ...s.watchOuts,
-      ...s.keyFiles.map((k) => `${k.path} ${k.what}`),
-      ...s.jobs.map((j) => `${j.name} ${j.ref} ${j.what}`),
-      ...s.switches.map((w) => `${w.name} ${w.what}`),
-      ...s.models,
-    ].join(" ")
   const systems = atlas.systems.filter((s) => all(head(s)))
-  const mentions = atlas.systems.filter((s) => !systems.includes(s) && all(`${head(s)} ${deep(s)}`))
+  const mentions = atlas.systems.filter((s) => !systems.includes(s) && all(strings(s).join(" ")))
   const terms = (atlas.glossary ?? []).filter((g) => all(`${g.term} ${g.meaning}`))
-  return { systems, mentions, terms }
+  const top = [
+    ...(atlas.about && all(atlas.about) ? [`about: ${atlas.about}`] : []),
+    ...(atlas.overview && all(atlas.overview) ? [`overview: ${atlas.overview}`] : []),
+    ...(atlas.flows ?? []).flatMap((f) => (f.steps ?? []).filter((st) => all(`${f.name} ${st.system} ${st.text}`)).map((st) => `flow "${f.name}", ${st.system}: ${st.text}`)),
+  ]
+  return { systems, mentions, terms, top }
 }

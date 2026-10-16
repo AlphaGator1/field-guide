@@ -81,6 +81,12 @@ export type Config = {
   exclude: string[]
   /** A RATCHET on one printed entry: trim the prose, never raise it to fit. */
   entryMaxChars: number
+  /**
+   * Files that are prose, not code: a switch named only in them does not count as "in the code".
+   * Defaults to docs, changelogs and licences; a plugin repo, whose SKILL.md frontmatter is
+   * behaviour, narrows it.
+   */
+  prose?: string[]
   /** Optional stack add-ons: each makes the check claim one more kind of thing. */
   addons: {
     models?: { preset?: "prisma" | "sql" | "django" | "sqlalchemy"; files: string[]; pattern?: string }

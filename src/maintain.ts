@@ -5,8 +5,8 @@
  *   stamp    records the commit the atlas was last verified against.
  * Local only: git and the filesystem.
  */
-import { readFileSync, writeFileSync } from "fs"
-import { relative } from "path"
+import { readdirSync, readFileSync, statSync, writeFileSync } from "fs"
+import { join, relative } from "path"
 import { normalizePath, ownersOf } from "./lookup"
 import { git, listRepoFiles, readJson, universe, UsageError, type Ctx } from "./repo"
 import { SYSTEM_FIELDS, type Atlas, type Flow, type System, type Term } from "./types"
@@ -19,11 +19,16 @@ type Draft = {
   overview?: string
   about?: string
   title?: string
+  /** Glossary terms and flow names to delete (merge cannot otherwise drop a duplicate or a renamed flow). */
+  remove?: { glossary?: string[]; flows?: string[] }
   findings?: Finding[]
   notes?: string[]
 }
 
-/** Writes atlas.json the way it was read: 2-space JSON, its own line endings, a final newline. */
+/**
+ * Writes atlas.json the way it was read: 2-space JSON, its own line endings, a final newline.
+ * The file is machine-written: keep it out of a formatter (e.g. .prettierignore).
+ */
 export function saveAtlas(path: string, atlas: Atlas): void {
   let eol = "\n"
   try {
@@ -36,16 +41,34 @@ export function saveAtlas(path: string, atlas: Atlas): void {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
+/** Each argument is a JSON file, or a folder whose *.json files are read in name order (no shell globbing needed). */
+function expandInputs(inputs: string[]): string[] {
+  return inputs.flatMap((p) => {
+    let st
+    try {
+      st = statSync(p)
+    } catch {
+      throw new UsageError(`No such file or folder: ${p}`)
+    }
+    if (!st.isDirectory()) return [p]
+    const files = readdirSync(p).filter((f) => f.endsWith(".json")).sort().map((f) => join(p, f))
+    if (!files.length) throw new UsageError(`${p} holds no .json files.`)
+    return files
+  })
+}
+
 export function merge(ctx: Ctx, atlas: Atlas, inputs: string[], dryRun: boolean): string {
-  if (!inputs.length) throw new UsageError("atlas merge <draft.json ...>: name at least one file.")
+  if (!inputs.length) throw new UsageError("atlas merge <file|folder ...>: name at least one.")
+  const files = expandInputs(inputs)
   const changed = new Map<string, string[]>()
   const unknown: string[] = []
   const findings: Finding[] = []
   const notes: string[] = []
   let termsAdded = 0
   let termsChanged = 0
+  let termsRemoved = 0
   let topChanged = 0
-  for (const file of inputs) {
+  for (const file of files) {
     const raw = readJson<Draft | Partial<System>[]>(file)
     const draft: Draft = Array.isArray(raw) ? { systems: raw } : raw
     for (const d of draft.systems ?? []) {
@@ -85,6 +108,16 @@ export function merge(ctx: Ctx, atlas: Atlas, inputs: string[], dryRun: boolean)
       else continue
       topChanged++
     }
+    for (const term of draft.remove?.glossary ?? []) {
+      const before = atlas.glossary?.length ?? 0
+      atlas.glossary = (atlas.glossary ?? []).filter((g) => g.term.trim().toLowerCase() !== term.trim().toLowerCase())
+      termsRemoved += before - atlas.glossary.length
+    }
+    for (const name of draft.remove?.flows ?? []) {
+      const before = atlas.flows?.length ?? 0
+      atlas.flows = (atlas.flows ?? []).filter((f) => f.name !== name)
+      topChanged += before - atlas.flows.length
+    }
     for (const k of ["title", "about", "overview"] as const) {
       if (typeof draft[k] === "string" && draft[k] !== atlas[k]) {
         atlas[k] = draft[k] as string
@@ -97,7 +130,7 @@ export function merge(ctx: Ctx, atlas: Atlas, inputs: string[], dryRun: boolean)
   if (!dryRun) saveAtlas(ctx.atlasPath, atlas)
 
   const fields = [...changed.values()].reduce((n, f) => n + f.length, 0)
-  const out = [`${dryRun ? "Would change" : "Changed"} ${fields} system fields across ${changed.size} systems; glossary +${termsAdded} new, ${termsChanged} reworded; ${topChanged} flows/title/overview updates.`]
+  const out = [`${dryRun ? "Would change" : "Changed"} ${fields} system fields across ${changed.size} systems; glossary +${termsAdded} new, ${termsChanged} reworded, ${termsRemoved} removed; ${topChanged} flows/title/overview updates (from ${files.length} file${files.length === 1 ? "" : "s"}).`]
   for (const [id, f] of changed) out.push(`  ${id}: ${f.join(", ")}`)
   if (findings.length) {
     const by = new Map<string, number>()
@@ -111,28 +144,47 @@ export function merge(ctx: Ctx, atlas: Atlas, inputs: string[], dryRun: boolean)
 
 export type Change = { status: string; path: string }
 
-/** Files changed since `ref` (committed, staged, unstaged and untracked), each mapped to its owners. */
-export function changed(ctx: Ctx, atlas: Atlas, refArg: string | undefined, asJson: boolean): string {
-  const lastTouch = () => git(ctx.root, ["log", "-1", "--format=%H", "--", normalizePath(relative(ctx.root, ctx.atlasPath))]) || undefined
-  const ref = refArg ?? atlas.verified?.commit ?? lastTouch()
-  if (!ref) throw new UsageError("atlas changed <commit>: no commit given, atlas.json has no verified.commit, and git has no commit touching it (run `atlas stamp` after a build or update).")
-  if (git(ctx.root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) === undefined) throw new UsageError(`${ref} is not a commit in this repository.`)
-  const diff = git(ctx.root, ["diff", "--name-status", "-M", ref, "--"]) ?? ""
+/** `git diff -z --name-status` records: STATUS NUL path NUL, or R/C<score> NUL old NUL new NUL. */
+function parseNameStatusZ(out: string): Change[] {
+  const parts = out.split("\0")
   const changes: Change[] = []
-  for (const line of diff.split("\n").filter(Boolean)) {
-    const [status, a, b] = line.split("\t")
-    if (status.startsWith("R")) {
-      changes.push({ status: "D", path: normalizePath(a) }, { status: "A", path: normalizePath(b) })
+  for (let i = 0; i < parts.length && parts[i]; ) {
+    const status = parts[i]
+    if (/^[RC]/.test(status)) {
+      if (status[0] === "R") changes.push({ status: "D", path: normalizePath(parts[i + 1]) })
+      changes.push({ status: "A", path: normalizePath(parts[i + 2]) })
+      i += 3
     } else {
-      changes.push({ status: status[0], path: normalizePath(a) })
+      changes.push({ status: status[0], path: normalizePath(parts[i + 1]) })
+      i += 2
     }
   }
-  const tracked = new Set((git(ctx.root, ["ls-files", "--others", "--exclude-standard", "-z"]) ?? "").split("\0").filter(Boolean).map(normalizePath))
-  for (const p of tracked) if (!changes.some((c) => c.path === p)) changes.push({ status: "A", path: p })
+  return changes
+}
+
+const commitExists = (root: string, ref: string) => git(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) !== undefined
+
+/** Files changed since `ref` (committed, staged, unstaged and untracked), each mapped to its owners. */
+export function changed(ctx: Ctx, atlas: Atlas, refArg: string | undefined, asJson: boolean): string {
+  const atlasRel = normalizePath(relative(ctx.root, ctx.atlasPath))
+  const lastTouch = () => git(ctx.root, ["log", "-1", "--format=%H", "--", atlasRel]) || undefined
+  const notes: string[] = []
+  let ref = refArg ?? atlas.verified?.commit ?? lastTouch()
+  if (!ref) throw new UsageError("atlas changed <commit>: no commit given, atlas.json has no verified.commit, and git has no commit touching it (run `atlas stamp` after a build or update).")
+  if (!commitExists(ctx.root, ref)) {
+    // A shallow clone, a squash-merged branch or a teammate's fresh clone may not hold the verified commit.
+    const fallback = refArg ? undefined : lastTouch()
+    if (!fallback || !commitExists(ctx.root, fallback)) throw new UsageError(`${ref} is not a commit in this repository (a shallow clone or a rewritten branch?). Pass a commit: atlas changed <commit>.`)
+    notes.push(`verified.commit ${ref.slice(0, 12)} is not in this repository; starting from the last commit that touched atlas.json instead (${fallback.slice(0, 12)}).`)
+    ref = fallback
+  }
+  // --relative and the "." pathspec keep paths relative to the root, and inside it, when the atlas lives in a monorepo package.
+  const changes = parseNameStatusZ(git(ctx.root, ["diff", "-z", "--relative", "--name-status", "-M", ref, "--", "."]) ?? "")
+  const untracked = (git(ctx.root, ["ls-files", "-z", "--others", "--exclude-standard", "--", "."]) ?? "").split("\0").filter(Boolean).map(normalizePath)
+  for (const p of untracked) if (!changes.some((c) => c.path === p)) changes.push({ status: "A", path: p })
 
   const files = new Set(universe(ctx, listRepoFiles(ctx.root, ctx.config.files)))
-  const own = ctx.dirRel ? `${ctx.dirRel}/` : "\0"
-  const relevant = changes.filter((c) => !c.path.startsWith(own))
+  const relevant = changes.filter((c) => !ctx.isAtlasFile(c.path))
   const bySystem = new Map<string, Change[]>()
   const unowned: Change[] = []
   for (const c of relevant) {
@@ -144,9 +196,9 @@ export function changed(ctx: Ctx, atlas: Atlas, refArg: string | undefined, asJs
     for (const s of owners) bySystem.set(s.id, [...(bySystem.get(s.id) ?? []), c])
   }
   const namedGone = atlas.systems.flatMap((s) => (s.keyFiles ?? []).filter((k) => relevant.some((c) => c.status === "D" && c.path === normalizePath(k.path))).map((k) => `${s.id}: ${k.path}`))
-  if (asJson) return JSON.stringify({ ref, systems: Object.fromEntries(bySystem), unowned, deletedKeyFiles: namedGone }, null, 2)
+  if (asJson) return JSON.stringify({ ref, notes, systems: Object.fromEntries(bySystem), unowned, deletedKeyFiles: namedGone }, null, 2)
 
-  const out = [`${relevant.length} files changed since ${ref}; ${bySystem.size} of ${atlas.systems.length} systems own at least one.`]
+  const out = [...notes, `${relevant.length} files changed since ${ref}; ${bySystem.size} of ${atlas.systems.length} systems own at least one.`]
   for (const s of atlas.systems) {
     const list = bySystem.get(s.id)
     if (!list) continue
@@ -154,14 +206,17 @@ export function changed(ctx: Ctx, atlas: Atlas, refArg: string | undefined, asJs
   }
   if (unowned.length) out.push("", `New files no system owns yet (${unowned.length}):`, ...unowned.map((c) => `  ${c.status} ${c.path}`))
   if (namedGone.length) out.push("", "Deleted files still named as key files:", ...namedGone.map((n) => `  ${n}`))
-  out.push("", `Review each listed system: \`git diff ${ref} -- <its files>\`, then fix the sentences that moved.`)
+  out.push("", `Review each listed system: \`git diff ${ref} -- <its files>\`, then fix the sentences that moved. Search the atlas for every old value the diff replaced, too: other entries may repeat it.`)
   return out.join("\n")
 }
 
 export function stamp(ctx: Ctx, atlas: Atlas): string {
   const commit = git(ctx.root, ["rev-parse", "HEAD"])
   if (!commit) throw new UsageError("Not a git repository with a commit: nothing to stamp.")
-  const dirty = (git(ctx.root, ["status", "--porcelain"]) ?? "").split("\n").filter((l) => l && !l.slice(3).startsWith(ctx.dirRel)).length
+  const dirty = [
+    ...(git(ctx.root, ["diff", "-z", "--relative", "--name-only", "HEAD", "--", "."]) ?? "").split("\0"),
+    ...(git(ctx.root, ["ls-files", "-z", "--others", "--exclude-standard", "--", "."]) ?? "").split("\0"),
+  ].filter((p) => p && !ctx.isAtlasFile(normalizePath(p))).length
   atlas.verified = { commit, date: new Date().toISOString().slice(0, 10) }
   saveAtlas(ctx.atlasPath, atlas)
   return `Stamped atlas.json as verified against ${commit.slice(0, 12)}${dirty ? ` (note: ${dirty} uncommitted changes outside the atlas folder; stamp again after committing them)` : ""}.`

@@ -10,7 +10,7 @@ works, its key files, jobs, switches, connections, rules and checks. Before
 opening a system's code, print ONE entry; never Read atlas.json whole (it is
 large):
 - `node {{DIR}}/atlas.mjs` lists every system; `node {{DIR}}/atlas.mjs <id>` prints one;
-- `node {{DIR}}/atlas.mjs <path>` names a file's owner; `node {{DIR}}/atlas.mjs <word>` searches.
+- `node {{DIR}}/atlas.mjs <path>` names a file's owner; `node {{DIR}}/atlas.mjs --search <words>` searches entries, flows and the glossary.
 
 `node {{DIR}}/atlas.mjs check` keeps every file on the map, not the prose:
 when you change how a system works, fix its entry in the same change.
@@ -30,7 +30,7 @@ is large); print one entry:
 - `node {{DIR}}/atlas.mjs`: every system, one line each
 - `node {{DIR}}/atlas.mjs <id>`: one system in full
 - `node {{DIR}}/atlas.mjs <path>`: the system that owns a file, and its entry
-- `node {{DIR}}/atlas.mjs <word>`: systems and glossary terms that mention it
+- `node {{DIR}}/atlas.mjs --search <words>`: everything that mentions them (entries, flows, overview, glossary)
 
 `node {{DIR}}/atlas.mjs check` keeps every file on the map, not the prose.
 When you change how a system works, re-read its entry and fix the sentences

@@ -2,10 +2,21 @@
   "atlas": "atlas.json",
   "root": "../..",
   "files": "git",
-  "include": ["**"],
+  "include": [
+    "**"
+  ],
   "exclude": [],
   "entryMaxChars": 12000,
   "addons": {
-    "packageScripts": { "file": "package.json", "match": ".*" }
-  }
+    "packageScripts": {
+      "file": "package.json",
+      "match": ".*"
+    }
+  },
+  "prose": [
+    "*.md",
+    "LICENSE",
+    "templates/*.md",
+    "skills/build/reference/**"
+  ]
 }
