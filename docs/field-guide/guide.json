@@ -433,7 +433,8 @@
         "dist/**",
         "test/**",
         ".gitignore",
-        ".gitattributes"
+        ".gitattributes",
+        "CLAUDE.md"
       ],
       "keyFiles": [
         {
@@ -451,6 +452,10 @@
         {
           "path": "dist/guide.mjs",
           "what": "The bundled CLI that projects vendor."
+        },
+        {
+          "path": "CLAUDE.md",
+          "what": "How a Claude session changes, tests and releases this repo."
         }
       ],
       "models": [],
@@ -481,7 +486,9 @@
           "why": "Inlines the page template into the bundle."
         }
       ],
-      "rules": [],
+      "rules": [
+        "CLAUDE.md"
+      ],
       "checks": [
         "test",
         "check"
