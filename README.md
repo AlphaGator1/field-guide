@@ -34,7 +34,7 @@ work, and what will bite me if I change it?" We tried both on the same code.
 | Unit of answer | a function, class or file node and its edges | a named system, in sentences |
 | Covers non-code files (CI, installer scripts, docs, assets) | no: on ParaFlow, 27 of 57 files had no node | yes: the check fails until every file has an owner |
 | Crosses language boundaries (React UI to Rust backend) | no: 0 edges on ParaFlow | yes, in `connects` and the journeys |
-| Environment switches, scheduled jobs, CI workflows | no: 0 of ParaFlow's 8 `PARAFLOW_*` switches | yes, and the check proves each one still exists |
+| Environment switches, scheduled jobs, CI workflows | no: 0 of ParaFlow's 9 `PARAFLOW_*` switches | yes, and the check proves each one still exists |
 | "Why" and "watch out" knowledge | no | yes, fact-checked against the code |
 | Cost to build | seconds, no tokens | {{COST_SUMMARY}} |
 | Stays current | re-run the parser | the check catches files and names; prose is re-checked with `/system-atlas:update` |

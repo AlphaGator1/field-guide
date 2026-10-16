@@ -133,7 +133,10 @@ Use 2 or 3 fact-checkers (1 or 2 for fewer than 10 systems). Partition the
 systems so that no agent checks a batch it drafted. Fill
 `PLUGIN/skills/build/reference/factcheck-prompt.md` the same way (`{{SCOPE}}`
 stays empty on a first build; `{{OUT}}` is
-`<atlas folder>/.build/fix-<n>.json`) and launch all of them in ONE message.
+`<atlas folder>/.build/fix-<n>.json`; for ONE of the agents, `{{TOP_LEVEL}}` asks it
+to check `about`, `overview` and the flows too, printed by `ATLAS overview`, and to
+put a corrected top-level `flows`, `about` or `overview` in its output; for the
+others it stays empty) and launch all of them in ONE message.
 
 Then `ATLAS merge <atlas folder>/.build/fix-*.json`. It prints how many fields
 changed and the findings by severity: that count is the measure of what the

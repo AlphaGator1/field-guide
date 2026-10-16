@@ -106,6 +106,18 @@ export function renderIndex(atlas: Atlas): string {
   return out.join("\n")
 }
 
+/** The top of the atlas: about, overview and every flow step by step (`atlas overview`). */
+export function renderOverview(atlas: Atlas): string {
+  const name = (id: string) => atlas.systems.find((x) => x.id === id)?.name ?? id
+  const out = [atlas.title, "", atlas.about ?? "", "", atlas.overview ?? ""]
+  for (const f of atlas.flows ?? []) {
+    out.push("", `Flow: ${f.name}`)
+    f.steps.forEach((st, i) => out.push(`  ${i + 1}. ${name(st.system)} [${st.system}]: ${st.text}`))
+  }
+  out.push("", `Glossary: ${(atlas.glossary ?? []).length} terms (atlas <word> searches them).`)
+  return out.join("\n")
+}
+
 /**
  * Systems and glossary terms that contain EVERY word of the query
  * (case-insensitive). `systems` matched on the id, name, one-liner or

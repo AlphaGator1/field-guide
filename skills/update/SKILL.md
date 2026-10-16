@@ -16,9 +16,12 @@ Note the start time first; you report wall time and token use at the end.
 
 ## 1. Keep the vendored CLI current
 
-Compare `ATLAS --version` with `node "PLUGIN/dist/atlas.mjs" --version`. If
-the plugin's is newer, tell the user and, with their yes, copy
-`PLUGIN/dist/atlas.mjs` over `<atlas folder>/atlas.mjs`.
+Compare `ATLAS --version` with `node "PLUGIN/dist/atlas.mjs" --version`, and
+the two files themselves (`git diff --no-index --stat <atlas folder>/atlas.mjs
+"PLUGIN/dist/atlas.mjs"`). If the plugin's copy is newer or different, tell
+the user and, with their yes, copy `PLUGIN/dist/atlas.mjs` over
+`<atlas folder>/atlas.mjs`, then run `ATLAS check` (a newer check can find
+more).
 
 ## 2. What changed
 

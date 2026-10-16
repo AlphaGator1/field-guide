@@ -65,7 +65,7 @@ export const SYSTEM_FIELDS = [
   "models", "jobs", "switches", "connects", "rules", "checks", "watchOuts",
 ] as const
 /** CLI subcommands: `atlas <id>` could never print a system with one of these ids. */
-export const SUBCOMMANDS = ["check", "render", "init", "inventory", "changed", "merge", "stamp", "help"] as const
+export const SUBCOMMANDS = ["check", "render", "init", "inventory", "changed", "merge", "stamp", "overview", "help"] as const
 export const ARRAY_FIELDS =["journey", "owns", "keyFiles", "models", "jobs", "switches", "connects", "rules", "checks", "watchOuts"] as const
 
 export type Config = {

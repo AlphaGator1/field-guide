@@ -5,6 +5,7 @@
  *   atlas <id>                  one system in full
  *   atlas <path>                which system owns a file (and its entry)
  *   atlas <word ...>            systems and glossary terms mentioning every word
+ *   atlas overview              the about text, the overview and every flow
  *   atlas check [--json]        coverage plus existence; exit 1 on any failure
  *   atlas render [out.html]     the atlas as one self-contained page
  *   atlas init [--force]        vendor this CLI into ./docs/atlas and write a config
@@ -19,7 +20,7 @@ import { dirname } from "path"
 import { fileURLToPath } from "url"
 import { CHECK_CODES, formatResults, runCheck } from "./check"
 import { init, inventory } from "./init"
-import { normalizePath, ownersOf, renderIndex, renderSystem, search } from "./lookup"
+import { normalizePath, ownersOf, renderIndex, renderOverview, renderSystem, search } from "./lookup"
 import { changed, merge, stamp } from "./maintain"
 import { findAtlasDir, loadAtlas, loadContext, UsageError } from "./repo"
 import { writePage } from "./render"
@@ -91,6 +92,9 @@ function main(argv: string[]): number {
     case "stamp":
       console.log(stamp(ctx, atlas))
       return 0
+    case "overview":
+      console.log(renderOverview(atlas))
+      return 0
   }
 
   // Lookup: an id, then a path, then words.
@@ -146,6 +150,7 @@ const HELP = `System Atlas ${VERSION}: a plain-English map of every system in th
   atlas <id> [--json]         one system in full (--json: as atlas.json holds it)
   atlas <path>                which system owns a file (and its entry)
   atlas <word ...>            systems and glossary terms mentioning every word
+  atlas overview              the about text, the overview and every flow, step by step
   atlas check [--json]        every file on the map, every name real; exit 1 on failure
   atlas render [out.html]     one self-contained page (default: <atlas folder>/atlas.html)
   atlas init [--force]        vendor this CLI into ./docs/atlas and detect a config

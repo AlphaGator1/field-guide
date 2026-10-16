@@ -1,6 +1,6 @@
 ATLAS FIELD RULES (atlas.json; `node <cli> check` enforces the starred ones)
 
-- id*: lowercase-kebab, unique; never one of: check, render, init, inventory, changed, merge, stamp, help.
+- id*: lowercase-kebab, unique; never one of: check, render, init, inventory, changed, merge, stamp, overview, help.
 - name: 1-4 words. oneLiner*: one line, at most 15 words: what it does for the product or its users.
 - summary: 2-4 plain sentences: what it is, why it exists, how it works at a high level. Gloss any technical term in passing.
 - journey: 3-8 short steps, in order: what happens, told from the user's side where possible ("A user presses the hotkey").

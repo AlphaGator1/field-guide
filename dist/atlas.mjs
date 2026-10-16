@@ -38,7 +38,7 @@ var SYSTEM_FIELDS = [
   "checks",
   "watchOuts"
 ];
-var SUBCOMMANDS = ["check", "render", "init", "inventory", "changed", "merge", "stamp", "help"];
+var SUBCOMMANDS = ["check", "render", "init", "inventory", "changed", "merge", "stamp", "overview", "help"];
 var ARRAY_FIELDS = ["journey", "owns", "keyFiles", "models", "jobs", "switches", "connects", "rules", "checks", "watchOuts"];
 
 // src/lookup.ts
@@ -126,6 +126,16 @@ function renderIndex(atlas) {
     out.push(`${g.name}:`);
     for (const s of atlas.systems.filter((x) => x.group === g.id)) out.push(`  ${s.id} \u2014 ${s.name}: ${s.oneLiner}`);
   }
+  return out.join("\n");
+}
+function renderOverview(atlas) {
+  const name = (id) => atlas.systems.find((x) => x.id === id)?.name ?? id;
+  const out = [atlas.title, "", atlas.about ?? "", "", atlas.overview ?? ""];
+  for (const f of atlas.flows ?? []) {
+    out.push("", `Flow: ${f.name}`);
+    f.steps.forEach((st, i) => out.push(`  ${i + 1}. ${name(st.system)} [${st.system}]: ${st.text}`));
+  }
+  out.push("", `Glossary: ${(atlas.glossary ?? []).length} terms (atlas <word> searches them).`);
   return out.join("\n");
 }
 function search(atlas, query) {
@@ -1306,6 +1316,9 @@ function main(argv) {
     case "stamp":
       console.log(stamp(ctx, atlas));
       return 0;
+    case "overview":
+      console.log(renderOverview(atlas));
+      return 0;
   }
   const arg = pos.join(" ").trim();
   if (!arg) {
@@ -1358,6 +1371,7 @@ var HELP = `System Atlas ${VERSION}: a plain-English map of every system in this
   atlas <id> [--json]         one system in full (--json: as atlas.json holds it)
   atlas <path>                which system owns a file (and its entry)
   atlas <word ...>            systems and glossary terms mentioning every word
+  atlas overview              the about text, the overview and every flow, step by step
   atlas check [--json]        every file on the map, every name real; exit 1 on failure
   atlas render [out.html]     one self-contained page (default: <atlas folder>/atlas.html)
   atlas init [--force]        vendor this CLI into ./docs/atlas and detect a config
