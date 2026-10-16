@@ -1,6 +1,6 @@
 /**
- * `atlas init` vendors this CLI into the project and writes a starting config
- * from what it detects; `atlas inventory` prints the file universe by folder
+ * `guide init` vendors this CLI into the project and writes a starting config
+ * from what it detects; `guide inventory` prints the file universe by folder
  * so a session can propose systems without opening every file.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
@@ -8,8 +8,8 @@ import { join, relative, resolve } from "path"
 import { fileURLToPath } from "url"
 import { globToRegExp, normalizePath, ownersOf } from "./lookup"
 import { CONFIG_FILE, DEFAULT_CONFIG, DEFAULT_DIR, findGitRoot, listRepoFiles, readJson, universe, type Ctx } from "./repo"
-import type { Atlas, Config } from "./types"
-import readmeTemplate from "../templates/atlas-readme.md"
+import type { Guide, Config } from "./types"
+import readmeTemplate from "../templates/guide-readme.md"
 
 /** Instruction files a drafting agent should read before the code (the project's curated knowledge). */
 const INSTRUCTION_GLOBS = [
@@ -56,7 +56,7 @@ export function init(dirArg: string | undefined, force: boolean): string {
   mkdirSync(dir, { recursive: true })
 
   const self = fileURLToPath(import.meta.url)
-  const vendored = join(dir, "atlas.mjs")
+  const vendored = join(dir, "guide.mjs")
   if (resolve(self) !== resolve(vendored)) {
     copyFileSync(self, vendored)
     out.push(`Vendored the CLI to ${rel(repoRoot, vendored)} (commit it: CI and teammates run it with plain node, no install).`)
@@ -81,8 +81,8 @@ export function init(dirArg: string | undefined, force: boolean): string {
 
   const ignore = join(dir, ".gitignore")
   if (!existsSync(ignore)) {
-    writeFileSync(ignore, "# Drafts and fact-check output from an atlas build.\n.build/\n# The rendered page: regenerate it with `node atlas.mjs render`.\natlas.html\n")
-    out.push(`Wrote ${rel(repoRoot, ignore)} (.build/ and atlas.html are not committed).`)
+    writeFileSync(ignore, "# Drafts and fact-check output from a guide build.\n.build/\n# The rendered page: regenerate it with `node guide.mjs render`.\nguide.html\n")
+    out.push(`Wrote ${rel(repoRoot, ignore)} (.build/ and guide.html are not committed).`)
   }
   const readme = join(dir, "README.md")
   if (!existsSync(readme)) {
@@ -97,13 +97,13 @@ function rel(root: string, p: string): string {
 }
 
 /** The universe by folder (to `depth` segments), with file and line counts, plus the instruction files. */
-export function inventory(ctx: Ctx, atlas: Atlas | undefined, depth: number, unownedOnly: boolean): string {
+export function inventory(ctx: Ctx, guide: Guide | undefined, depth: number, unownedOnly: boolean): string {
   const all = listRepoFiles(ctx.root, ctx.config.files)
   const files = universe(ctx, all)
   if (unownedOnly) {
-    if (!atlas) return "No atlas.json yet: every file is unowned."
-    const unowned = files.filter((p) => ownersOf(atlas, p).length === 0)
-    const dead = atlas.systems.flatMap((s) => (s.owns ?? []).filter((g) => !files.some((p) => globToRegExp(g).test(p))).map((g) => `${s.id}: ${g}`))
+    if (!guide) return "No guide.json yet: every file is unowned."
+    const unowned = files.filter((p) => ownersOf(guide, p).length === 0)
+    const dead = guide.systems.flatMap((s) => (s.owns ?? []).filter((g) => !files.some((p) => globToRegExp(g).test(p))).map((g) => `${s.id}: ${g}`))
     const out = [`${unowned.length} of ${files.length} files are owned by no system.`, ...unowned.map((p) => `  ${p}`)]
     if (dead.length) out.push("", `${dead.length} owns globs match no file:`, ...dead.map((d) => `  ${d}`))
     return out.join("\n")

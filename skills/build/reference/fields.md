@@ -1,4 +1,4 @@
-ATLAS FIELD RULES (atlas.json; `node <cli> check` enforces the starred ones)
+GUIDE FIELD RULES (guide.json; `node <cli> check` enforces the starred ones)
 
 - id*: lowercase-kebab, unique; never one of: check, render, init, inventory, changed, merge, stamp, overview, help.
 - name: 1-4 words. oneLiner*: one line, at most 15 words: what it does for the product or its users.

@@ -1,11 +1,11 @@
 /**
- * `atlas check`: keeps the map honest. Reads files and runs `git ls-files`
+ * `guide check`: keeps the map honest. Reads files and runs `git ls-files`
  * only: no network, no database, no environment variables.
  *
  * A map that silently misses a new file, or names a deleted one, is worse
  * than none, because it is read as complete. So this fails when:
  *   - a file in the configured universe is claimed by no system's `owns` globs;
- *   - anything the atlas NAMES no longer exists: an `owns` glob matching
+ *   - anything the guide NAMES no longer exists: an `owns` glob matching
  *     nothing, a key file, a rule, a check, a job, a switch, a data model, a
  *     connection or flow step pointing at no system;
  *   - an optional stack add-on finds something unclaimed (a data model, a
@@ -21,7 +21,7 @@
 import { join } from "path"
 import { globToRegExp, matchesAny, normalizePath, ownersOf, renderIndex, renderSystem } from "./lookup"
 import { inRepo, listRepoFiles, listUntracked, readJson, readText, resolveArgPath, universe, type Ctx } from "./repo"
-import { ARRAY_FIELDS, JOB_KINDS, SUBCOMMANDS, SYSTEM_FIELDS, type Atlas, type Config, type System } from "./types"
+import { ARRAY_FIELDS, JOB_KINDS, SUBCOMMANDS, SYSTEM_FIELDS, type Guide, type Config, type System } from "./types"
 
 export type Result = { code: string; section: string; name: string; pass: boolean; detail?: string }
 
@@ -80,7 +80,7 @@ export function identifierPattern(name: string): RegExp {
 }
 
 /** A copy every later section can walk without crashing: missing arrays become [], missing strings "". */
-function normalize(raw: Atlas): Atlas {
+function normalize(raw: Guide): Guide {
   const systems = arr<System>(raw?.systems).map((s) => {
     const o = (s && typeof s === "object" ? s : {}) as Record<string, unknown>
     const out: Record<string, unknown> = {}
@@ -134,24 +134,24 @@ export function modelNames(ctx: Ctx, all: string[], addon: NonNullable<Config["a
   return [...names].sort()
 }
 
-export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
+export function runCheck(ctx: Ctx, raw: Guide): Result[] {
   const results: Result[] = []
   let section = ""
   const ok = (code: (typeof CHECK_CODES)[number], name: string, pass: boolean, detail?: string) =>
     results.push({ code, section, name, pass, detail: pass ? undefined : detail })
 
-  const atlas = normalize(raw)
+  const guide = normalize(raw)
   const cfg = ctx.config
   const all = listRepoFiles(ctx.root, cfg.files)
   const files = universe(ctx, all)
-  const ids = atlas.systems.map((s) => s.id)
-  const systems = atlas.systems
+  const ids = guide.systems.map((s) => s.id)
+  const systems = guide.systems
 
   // ---------------------------------------------------------------- shape
   section = "shape"
-  ok("shape.title", "the atlas has a title", nonEmpty(raw?.title))
-  ok("shape.nonempty", "the atlas has groups and systems", atlas.groups.length > 0 && systems.length > 0)
-  const groupIds = atlas.groups.map((g) => str(g?.id))
+  ok("shape.title", "the guide has a title", nonEmpty(raw?.title))
+  ok("shape.nonempty", "the guide has groups and systems", guide.groups.length > 0 && systems.length > 0)
+  const groupIds = guide.groups.map((g) => str(g?.id))
   ok("shape.group-ids", "group ids are present and unique", groupIds.every(nonEmpty) && dupes(groupIds).length === 0, sample(dupes(groupIds)) || "a group has no id")
   ok("shape.system-ids", "system ids are unique", dupes(ids).length === 0, sample(dupes(ids)))
   const badIds = ids.filter((id) => !ID_FORMAT.test(id) || (SUBCOMMANDS as readonly string[]).includes(id))
@@ -171,12 +171,12 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
   ok("shape.prose", "every system has a name, a one-liner and a summary", noProse.length === 0, sample(noProse.map((s) => s.id)))
   const multi = [
     ...systems.filter((s) => /[\r\n]/.test(s.name + s.oneLiner)).map((s) => s.id),
-    ...atlas.groups.filter((g) => /[\r\n]/.test(str(g?.name))).map((g) => `group ${str(g?.id)}`),
+    ...guide.groups.filter((g) => /[\r\n]/.test(str(g?.name))).map((g) => `group ${str(g?.id)}`),
   ]
   ok("shape.single-line", "names and one-liners fit on one line (the index prints one line per system)", multi.length === 0, sample(multi))
   const thin = systems.filter((s) => s.owns.length === 0 || s.keyFiles.length === 0)
   ok("shape.owns-keyfiles", "every system owns at least one glob and names at least one key file", thin.length === 0, sample(thin.map((s) => s.id)))
-  const empty = atlas.groups.filter((g) => !systems.some((s) => s.group === str(g?.id)))
+  const empty = guide.groups.filter((g) => !systems.some((s) => s.group === str(g?.id)))
   ok("shape.group-used", "every group has at least one system", empty.length === 0, sample(empty.map((g) => str(g?.id))))
   // The skeleton's placeholder is exactly "TODO"; real prose that merely starts with the word is fine.
   const todos = JSON.stringify(raw ?? {}).match(/"\s*TODO\s*"/g)?.length ?? 0
@@ -184,14 +184,14 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
 
   // ------------------------------------------------------------- coverage
   section = "coverage"
-  // Include globs are tested before excludes but never against the atlas's own files, so a renamed
-  // folder cannot stay green on the strength of the atlas folder inside it.
-  const candidates = all.filter((p) => !ctx.isAtlasFile(p))
+  // Include globs are tested before excludes but never against the guide's own files, so a renamed
+  // folder cannot stay green on the strength of the guide folder inside it.
+  const candidates = all.filter((p) => !ctx.isGuideFile(p))
   const deadInclude = cfg.include.filter((g) => !candidates.some((p) => globToRegExp(g).test(p)))
   ok("coverage.include", `every include glob matches a file, and the map has files to cover (${files.length})`, deadInclude.length === 0 && files.length > 0,
     deadInclude.length ? `matches nothing (renamed or deleted folder?): ${sample(deadInclude)}` : "include minus exclude left no files")
   const untracked = listUntracked(ctx.root, cfg.files)
-  const unowned = files.filter((p) => ownersOf(atlas, p).length === 0)
+  const unowned = files.filter((p) => ownersOf(guide, p).length === 0)
   const unownedTracked = unowned.filter((p) => !untracked.has(p))
   const unownedNew = unowned.filter((p) => untracked.has(p))
   ok("coverage.unowned", `every file is owned by a system (${files.length} files)`, unowned.length === 0,
@@ -205,19 +205,19 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
   ok("names.key-files", "every key file is in the repo (exact case) and says what it is", badKeys.length === 0, sample(badKeys))
   const badLinks = systems.flatMap((s) => s.connects.filter((l) => !ids.includes(str(l?.to)) || l.to === s.id || !nonEmpty(l?.why)).map((l) => `${s.id} -> ${str(l?.to)}`))
   ok("names.connects", "every connection points at another system and says why", badLinks.length === 0, sample(badLinks))
-  const flows = arr<{ name?: string; steps?: unknown }>(atlas.flows)
+  const flows = arr<{ name?: string; steps?: unknown }>(guide.flows)
   const badSteps = flows.flatMap((f) => {
     const steps = arr<{ system?: string; text?: string }>(f?.steps)
     const bad = steps.filter((st) => !ids.includes(str(st?.system)) || !nonEmpty(st?.text)).map((st) => `${str(f?.name)}: ${str(st?.system)}`)
     return !nonEmpty(f?.name) || steps.length === 0 ? [`${str(f?.name) || "(unnamed flow)"}: no name or no steps`, ...bad] : bad
   })
   ok("names.flows", "the big-picture flows exist and every step names a system", flows.length > 0 && badSteps.length === 0, flows.length ? sample(badSteps) : "no flows")
-  const terms = arr<{ term?: string; meaning?: string }>(atlas.glossary)
+  const terms = arr<{ term?: string; meaning?: string }>(guide.glossary)
   const badTerms = terms.filter((g) => !nonEmpty(g?.term) || !nonEmpty(g?.meaning)).map((g) => str(g?.term) || "(empty term)")
   const termDupes = dupes(terms.map((g) => str(g?.term).trim().toLowerCase()))
   ok("names.glossary", "every glossary entry has a term and a meaning, and no term repeats", badTerms.length === 0 && termDupes.length === 0, sample([...badTerms, ...termDupes.map((t) => `repeated: ${t}`)]))
   const badRules = systems.flatMap((s) => s.rules.filter((r) => !nonEmpty(r) || !inRepo(all, r)).map((r) => `${s.id}: ${r}`))
-  ok("names.rules", "every rule or instruction file the atlas names is in the repo", badRules.length === 0, sample(badRules))
+  ok("names.rules", "every rule or instruction file the guide names is in the repo", badRules.length === 0, sample(badRules))
 
   const scripts = readPackageScripts(ctx, all, cfg.addons.packageScripts?.file) ?? readPackageScripts(ctx, all) ?? {}
   const checkResolves = (c: string) =>
@@ -243,7 +243,7 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
   ok("names.jobs", `every job has a name, when and what, and a real ref for its kind (${JOB_KINDS.join(" | ")})`, badJobs.length === 0, sample(badJobs))
 
   // A switch must still appear, as a whole identifier, in the CODE it gates: the files on the map
-  // minus prose (docs, changelogs, instruction files). The atlas's own files and any rendered page
+  // minus prose (docs, changelogs, instruction files). The guide's own files and any rendered page
   // are never searched: they name every switch, so searching them would make this vacuous.
   const emptySwitch = systems.flatMap((s) => s.switches.filter((w) => !nonEmpty(w?.name) || !nonEmpty(w?.what)).map(() => `${s.id}: a switch with no name or no what`))
   const pending = new Map([...new Set(systems.flatMap((s) => s.switches.map((w) => str(w?.name))))].filter(nonEmpty).map((n) => [n, identifierPattern(n)] as const))
@@ -252,7 +252,7 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
     if (!pending.size) break
     if (matchesAny(prose, p)) continue
     const text = readText(ctx.root, p)
-    if (text === undefined || text.includes('id="atlas-data"')) continue
+    if (text === undefined || text.includes('id="guide-data"')) continue
     for (const [n, re] of [...pending]) if (re.test(text)) pending.delete(n)
   }
   ok("names.switches", "every switch is named in the code (its exact identifier appears in a non-doc file on the map)", pending.size === 0 && emptySwitch.length === 0,
@@ -262,7 +262,7 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
   const models = modelsAddon ? modelNames(ctx, all, modelsAddon) : []
   const claimedModels = [...new Set(systems.flatMap((s) => s.models.map(str)))]
   const ghostModels = claimedModels.filter((m) => !models.includes(m))
-  ok("names.models", "every data model the atlas names exists (configure addons.models to name any)", ghostModels.length === 0,
+  ok("names.models", "every data model the guide names exists (configure addons.models to name any)", ghostModels.length === 0,
     modelsAddon ? `not found: ${sample(ghostModels)}` : `models are named but no models add-on can verify them: ${sample(ghostModels)}`)
 
   // --------------------------------------------------------------- add-ons
@@ -311,7 +311,7 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
   }
 
   // ---------------------------------------------------------------- lookup
-  // A session reads ONE entry through `atlas <id>` instead of the whole file, so the printed entry
+  // A session reads ONE entry through `guide <id>` instead of the whole file, so the printed entry
   // must carry every field, exactly, under its own label; stay cheap; and find owners the way coverage does.
   section = "lookup"
   const badSections: string[] = []
@@ -319,7 +319,7 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
   const tooLong: string[] = []
   const sysName = (id: string) => systems.find((x) => x.id === id)?.name ?? id
   for (const s of systems) {
-    const text = renderSystem(atlas, s)
+    const text = renderSystem(guide, s)
     const at = ENTRY_SECTIONS.map((l) => text.indexOf(`\n${l}`))
     const ordered = at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1]))
     if (!text.startsWith(`${s.name} [${s.id}]`) || !ordered) {
@@ -353,7 +353,7 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
   ok("lookup.entry-sections", "every entry opens with its name and id and prints every section in order", badSections.length === 0, sample(badSections))
   ok("lookup.entry-complete", "every entry prints every step, watch-out, link, key file, job, switch, model, rule, check and glob in full, under its own label", incomplete.length === 0, sample(incomplete, 10))
   ok("lookup.entry-size", `every entry stays under ${cfg.entryMaxChars} characters (a ratchet: trim the prose, never raise it to fit)`, tooLong.length === 0, sample(tooLong))
-  const index = renderIndex(atlas)
+  const index = renderIndex(guide)
   const misIndexed = systems.filter((s) => index.split(`\n  ${s.id} — `).length !== 2)
   ok("lookup.index", "the index lists every system exactly once", misIndexed.length === 0, sample(misIndexed.map((s) => s.id)))
   // Sessions pass paths as they hold them: Windows-style, ./-prefixed, or absolute.
@@ -361,7 +361,7 @@ export function runCheck(ctx: Ctx, raw: Atlas): Result[] {
     const p = files.find((f) => matchesAny(s.owns, f))
     if (!p) return []
     const forms = [`.\\${p.replace(/\//g, "\\")}`, join(ctx.root, p)]
-    return forms.filter((f) => !ownersOf(atlas, resolveArgPath(ctx.root, ctx.root, f) ?? f).some((o) => o.id === s.id)).map((f) => `${s.id}: ${f}`)
+    return forms.filter((f) => !ownersOf(guide, resolveArgPath(ctx.root, ctx.root, f) ?? f).some((o) => o.id === s.id)).map((f) => `${s.id}: ${f}`)
   })
   ok("lookup.owner-path", "a Windows, ./-prefixed or absolute path finds the same owner as the map", lost.length === 0, sample(lost))
 

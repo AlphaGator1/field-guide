@@ -1,12 +1,12 @@
 {
-  "name": "system-atlas",
+  "name": "field-guide",
   "version": "0.1.0",
-  "description": "Build and maintain a System Atlas: a plain-English, code-verified map of every system in your repo, with a coverage check for CI and a one-entry lookup for Claude sessions.",
+  "description": "Build and maintain a Field Guide: a plain-English, code-verified map of every system in your repo, with a coverage check for CI and a one-entry lookup for Claude sessions.",
   "author": {
     "name": "OWNER_NAME"
   },
-  "homepage": "https://github.com/OWNER/system-atlas",
-  "repository": "https://github.com/OWNER/system-atlas",
+  "homepage": "https://github.com/OWNER/field-guide",
+  "repository": "https://github.com/OWNER/field-guide",
   "license": "MIT",
   "keywords": ["documentation", "architecture", "onboarding", "codebase-map", "ci", "subagents"]
 }

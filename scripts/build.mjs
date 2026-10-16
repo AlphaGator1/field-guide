@@ -1,13 +1,13 @@
-// Bundles src/cli.ts (with the page template inlined) into ONE file, dist/atlas.mjs,
+// Bundles src/cli.ts (with the page template inlined) into ONE file, dist/guide.mjs,
 // that runs on plain Node 18+ with no install: projects vendor that file.
-//   node scripts/build.mjs            write dist/atlas.mjs
-//   node scripts/build.mjs --verify   fail if the committed dist/atlas.mjs is stale
+//   node scripts/build.mjs            write dist/guide.mjs
+//   node scripts/build.mjs --verify   fail if the committed dist/guide.mjs is stale
 import { build } from "esbuild"
-import { readFileSync, writeFileSync } from "fs"
+import { mkdirSync, readFileSync, writeFileSync } from "fs"
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8"))
 const verify = process.argv.includes("--verify")
-const OUT = "dist/atlas.mjs"
+const OUT = "dist/guide.mjs"
 
 const result = await build({
   entryPoints: ["src/cli.ts"],
@@ -20,8 +20,8 @@ const result = await build({
   banner: {
     js: [
       "#!/usr/bin/env node",
-      `// System Atlas CLI ${pkg.version}. Generated from src/ by scripts/build.mjs: do not edit by hand.`,
-      "// A project vendors this one file (atlas init); replace it with a newer release to upgrade.",
+      `// Field Guide CLI ${pkg.version}. Generated from src/ by scripts/build.mjs: do not edit by hand.`,
+      "// A project vendors this one file (guide init); replace it with a newer release to upgrade.",
       "// Reads files and runs local git only: no network. License: MIT.",
     ].join("\n"),
   },
@@ -38,6 +38,7 @@ if (verify) {
   }
   console.log(`${OUT} matches src/ (${text.length} bytes).`)
 } else {
+  mkdirSync("dist", { recursive: true })
   writeFileSync(OUT, text)
   console.log(`Wrote ${OUT} (${text.length} bytes).`)
 }

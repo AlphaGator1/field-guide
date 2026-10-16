@@ -22,8 +22,8 @@ export const files = {
   "scripts/check-fees.js": "console.log('ok')\n",
   "scripts/sweep.js": "console.log('swept')\n",
   "tests/fees.test.js": "// fee tests\n",
-  "docs/atlas/atlas.config.json": JSON.stringify({
-    atlas: "atlas.json",
+  "docs/field-guide/guide.config.json": JSON.stringify({
+    guide: "guide.json",
     root: "../..",
     files: "git",
     include: ["src/**", "scripts/**", ".github/workflows/**", "prisma/**", "tests/**", "*.json", "Makefile"],
@@ -40,9 +40,9 @@ export const files = {
   }, null, 2),
 }
 
-export const atlas = {
-  title: "Fixture Atlas",
-  about: "A fake shop used to prove every assertion of atlas check.",
+export const guide = {
+  title: "Fixture Guide",
+  about: "A fake shop used to prove every assertion of guide check.",
   overview: "Orders take a fee; accounts sign people in; tooling builds and ships it.",
   groups: [
     { id: "commerce", name: "Commerce", blurb: "Buying and the money it moves." },

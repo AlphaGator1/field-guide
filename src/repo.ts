@@ -1,5 +1,5 @@
 /**
- * Everything that touches the disk: finding the atlas folder and the repo
+ * Everything that touches the disk: finding the guide folder and the repo
  * root, loading the config, and listing the repo's files. Local only: the one
  * subprocess is `git` (ls-files, rev-parse, diff, log), never the network.
  */
@@ -7,13 +7,13 @@ import { execFileSync } from "child_process"
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs"
 import { dirname, isAbsolute, join, relative, resolve } from "path"
 import { matchesAny, normalizePath } from "./lookup"
-import type { Atlas, Config } from "./types"
+import type { Guide, Config } from "./types"
 
-export const CONFIG_FILE = "atlas.config.json"
-export const DEFAULT_DIR = "docs/atlas"
+export const CONFIG_FILE = "guide.config.json"
+export const DEFAULT_DIR = "docs/field-guide"
 
 export const DEFAULT_CONFIG: Config = {
-  atlas: "atlas.json",
+  guide: "guide.json",
   root: "",
   files: "git",
   include: ["**"],
@@ -27,23 +27,23 @@ export const CASE_INSENSITIVE = process.platform === "win32" || process.platform
 const fold = (p: string) => (CASE_INSENSITIVE ? p.toLowerCase() : p)
 
 export type Ctx = {
-  /** Absolute folder holding atlas.config.json. */
+  /** Absolute folder holding guide.config.json. */
   dir: string
   config: Config
-  /** Absolute path of atlas.json. */
-  atlasPath: string
-  /** Absolute repo root; every path in the atlas is relative to it. */
+  /** Absolute path of guide.json. */
+  guidePath: string
+  /** Absolute repo root; every path in the guide is relative to it. */
   root: string
-  /** The atlas folder, repo-relative (its own files are never on the map). */
+  /** The guide folder, repo-relative (its own files are never on the map). */
   dirRel: string
-  /** True for the atlas's own files: everything in its folder, plus atlas.json and the config wherever they are. */
-  isAtlasFile: (repoRelPath: string) => boolean
+  /** True for the guide's own files: everything in its folder, plus guide.json and the config wherever they are. */
+  isGuideFile: (repoRelPath: string) => boolean
 }
 
 export class UsageError extends Error {}
 
-/** --dir wins; then the folder the script itself sits in (a vendored copy); then docs/atlas under the cwd. */
-export function findAtlasDir(argDir: string | undefined, scriptDir: string | undefined): string {
+/** --dir wins; then the folder the script itself sits in (a vendored copy); then docs/field-guide under the cwd. */
+export function findGuideDir(argDir: string | undefined, scriptDir: string | undefined): string {
   if (argDir) {
     const d = resolve(argDir)
     if (!existsSync(join(d, CONFIG_FILE))) throw new UsageError(`No ${CONFIG_FILE} in ${d}.`)
@@ -52,7 +52,7 @@ export function findAtlasDir(argDir: string | undefined, scriptDir: string | und
   for (const d of [scriptDir, resolve(DEFAULT_DIR)]) {
     if (d && existsSync(join(d, CONFIG_FILE))) return d
   }
-  throw new UsageError(`No ${CONFIG_FILE} found next to this script or in ./${DEFAULT_DIR}. Pass --dir <folder>, or create one with: atlas init`)
+  throw new UsageError(`No ${CONFIG_FILE} found next to this script or in ./${DEFAULT_DIR}. Pass --dir <folder>, or create one with: guide init`)
 }
 
 /** The nearest folder at or above `from` that holds .git (a folder, or a file in a worktree). */
@@ -91,12 +91,12 @@ export function loadContext(dir: string): Ctx {
   const config: Config = { ...DEFAULT_CONFIG, ...raw, addons: { ...(raw.addons ?? {}) } }
   const root = config.root ? resolve(dir, config.root) : findGitRoot(dir) ?? process.cwd()
   const dirRel = repoRelative(root, dir)
-  if (!dirRel) throw new UsageError(`The atlas folder (${dir}) must be a subfolder of the repo root (${root}): its own files are kept off the map by folder.`)
-  const atlasPath = resolve(dir, config.atlas)
-  const own = new Set([repoRelative(root, atlasPath), repoRelative(root, join(dir, CONFIG_FILE))].filter((p): p is string => !!p).map(fold))
+  if (!dirRel) throw new UsageError(`The guide folder (${dir}) must be a subfolder of the repo root (${root}): its own files are kept off the map by folder.`)
+  const guidePath = resolve(dir, config.guide)
+  const own = new Set([repoRelative(root, guidePath), repoRelative(root, join(dir, CONFIG_FILE))].filter((p): p is string => !!p).map(fold))
   const prefix = fold(`${dirRel}/`)
-  const isAtlasFile = (p: string) => fold(p).startsWith(prefix) || own.has(fold(p))
-  return { dir, config, atlasPath, root, dirRel, isAtlasFile }
+  const isGuideFile = (p: string) => fold(p).startsWith(prefix) || own.has(fold(p))
+  return { dir, config, guidePath, root, dirRel, isGuideFile }
 }
 
 export function readJson<T>(path: string): T {
@@ -113,8 +113,8 @@ export function readJson<T>(path: string): T {
   }
 }
 
-export function loadAtlas(ctx: Ctx): Atlas {
-  return readJson<Atlas>(ctx.atlasPath)
+export function loadGuide(ctx: Ctx): Guide {
+  return readJson<Guide>(ctx.guidePath)
 }
 
 const WALK_SKIP = new Set([".git", "node_modules"])
@@ -177,7 +177,7 @@ function isFile(p: string): boolean {
 }
 
 /**
- * Whether a path the atlas names is in the repo: a listed file (exact case, so
+ * Whether a path the guide names is in the repo: a listed file (exact case, so
  * a case-only typo fails on Windows as it would on Linux CI), or a folder that
  * holds one. A gitignored build output does not count.
  */
@@ -187,9 +187,9 @@ export function inRepo(all: string[], rel: string): boolean {
   return all.includes(p) || all.some((f) => f.startsWith(`${p}/`))
 }
 
-/** The files the map must cover: include, minus exclude, minus the atlas's own files. */
+/** The files the map must cover: include, minus exclude, minus the guide's own files. */
 export function universe(ctx: Ctx, all: string[]): string[] {
-  return all.filter((p) => !ctx.isAtlasFile(p) && matchesAny(ctx.config.include, p) && !matchesAny(ctx.config.exclude, p))
+  return all.filter((p) => !ctx.isGuideFile(p) && matchesAny(ctx.config.include, p) && !matchesAny(ctx.config.exclude, p))
 }
 
 export function git(root: string, args: string[]): string | undefined {

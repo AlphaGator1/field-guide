@@ -1,10 +1,10 @@
 /**
- * The atlas lookups: PURE (no fs, no env, no network). Callers hand in the
- * parsed atlas.json. `atlas <id | path | word>` prints through these, and
- * `atlas check` asserts against the same functions, so the map the check
+ * The guide lookups: PURE (no fs, no env, no network). Callers hand in the
+ * parsed guide.json. `guide <id | path | word>` prints through these, and
+ * `guide check` asserts against the same functions, so the map the check
  * proves and the lookup a session runs cannot disagree.
  */
-import { JOB_KIND_LABELS, type Atlas, type System, type Term } from "./types"
+import { JOB_KIND_LABELS, type Guide, type System, type Term } from "./types"
 
 /** The section labels renderSystem prints, in order (the check pins each one). */
 export const SECTION_LABELS = [
@@ -65,15 +65,15 @@ export function normalizePath(p: string): string {
 }
 
 /** Every system whose `owns` globs claim the path (a file may belong to several). */
-export function ownersOf(atlas: Atlas, path: string): System[] {
+export function ownersOf(guide: Guide, path: string): System[] {
   const p = normalizePath(path)
-  return atlas.systems.filter((s) => matchesAny(s.owns, p))
+  return guide.systems.filter((s) => matchesAny(s.owns, p))
 }
 
 /** One system as plain text: about a third of its JSON's tokens, every field kept. */
-export function renderSystem(atlas: Atlas, s: System): string {
-  const group = atlas.groups.find((g) => g.id === s.group)?.name ?? s.group
-  const name = (id: string) => atlas.systems.find((x) => x.id === id)?.name ?? id
+export function renderSystem(guide: Guide, s: System): string {
+  const group = guide.groups.find((g) => g.id === s.group)?.name ?? s.group
+  const name = (id: string) => guide.systems.find((x) => x.id === id)?.name ?? id
   const list = (label: string, items: string[]) => (items.length ? [label, ...items.map((i) => `  - ${i}`)] : [`${label} none`])
   const inline = (label: string, items: string[]) => `${label} ${items.join(", ") || "none"}`
   return [
@@ -97,24 +97,24 @@ export function renderSystem(atlas: Atlas, s: System): string {
 }
 
 /** The table of contents: every system on one line, by group. */
-export function renderIndex(atlas: Atlas): string {
+export function renderIndex(guide: Guide): string {
   const out: string[] = []
-  for (const g of atlas.groups) {
+  for (const g of guide.groups) {
     out.push(`${g.name}:`)
-    for (const s of atlas.systems.filter((x) => x.group === g.id)) out.push(`  ${s.id} — ${s.name}: ${s.oneLiner}`)
+    for (const s of guide.systems.filter((x) => x.group === g.id)) out.push(`  ${s.id} — ${s.name}: ${s.oneLiner}`)
   }
   return out.join("\n")
 }
 
-/** The top of the atlas: about, overview and every flow step by step (`atlas overview`). */
-export function renderOverview(atlas: Atlas): string {
-  const name = (id: string) => atlas.systems.find((x) => x.id === id)?.name ?? id
-  const out = [atlas.title, "", atlas.about ?? "", "", atlas.overview ?? ""]
-  for (const f of atlas.flows ?? []) {
+/** The top of the guide: about, overview and every flow step by step (`guide overview`). */
+export function renderOverview(guide: Guide): string {
+  const name = (id: string) => guide.systems.find((x) => x.id === id)?.name ?? id
+  const out = [guide.title, "", guide.about ?? "", "", guide.overview ?? ""]
+  for (const f of guide.flows ?? []) {
     out.push("", `Flow: ${f.name}`)
     f.steps.forEach((st, i) => out.push(`  ${i + 1}. ${name(st.system)} [${st.system}]: ${st.text}`))
   }
-  out.push("", `Glossary: ${(atlas.glossary ?? []).length} terms (atlas <word> searches them).`)
+  out.push("", `Glossary: ${(guide.glossary ?? []).length} terms (guide <word> searches them).`)
   return out.join("\n")
 }
 
@@ -134,7 +134,7 @@ function strings(v: unknown): string[] {
  * owns); `top` lists matching lines of the about text, the overview and the
  * flows; `terms` the glossary.
  */
-export function search(atlas: Atlas, query: string): { systems: System[]; mentions: System[]; terms: Term[]; top: string[] } {
+export function search(guide: Guide, query: string): { systems: System[]; mentions: System[]; terms: Term[]; top: string[] } {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (!words.length) return { systems: [], mentions: [], terms: [], top: [] }
   const all = (text: string) => {
@@ -142,13 +142,13 @@ export function search(atlas: Atlas, query: string): { systems: System[]; mentio
     return words.every((w) => t.includes(w))
   }
   const head = (s: System) => `${s.id} ${s.name} ${s.oneLiner} ${s.summary}`
-  const systems = atlas.systems.filter((s) => all(head(s)))
-  const mentions = atlas.systems.filter((s) => !systems.includes(s) && all(strings(s).join(" ")))
-  const terms = (atlas.glossary ?? []).filter((g) => all(`${g.term} ${g.meaning}`))
+  const systems = guide.systems.filter((s) => all(head(s)))
+  const mentions = guide.systems.filter((s) => !systems.includes(s) && all(strings(s).join(" ")))
+  const terms = (guide.glossary ?? []).filter((g) => all(`${g.term} ${g.meaning}`))
   const top = [
-    ...(atlas.about && all(atlas.about) ? [`about: ${atlas.about}`] : []),
-    ...(atlas.overview && all(atlas.overview) ? [`overview: ${atlas.overview}`] : []),
-    ...(atlas.flows ?? []).flatMap((f) => (f.steps ?? []).filter((st) => all(`${f.name} ${st.system} ${st.text}`)).map((st) => `flow "${f.name}", ${st.system}: ${st.text}`)),
+    ...(guide.about && all(guide.about) ? [`about: ${guide.about}`] : []),
+    ...(guide.overview && all(guide.overview) ? [`overview: ${guide.overview}`] : []),
+    ...(guide.flows ?? []).flatMap((f) => (f.steps ?? []).filter((st) => all(`${f.name} ${st.system} ${st.text}`)).map((st) => `flow "${f.name}", ${st.system}: ${st.text}`)),
   ]
   return { systems, mentions, terms, top }
 }

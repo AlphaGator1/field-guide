@@ -2,17 +2,17 @@ Fill every {{PLACEHOLDER}}, paste fields.md where {{FIELDS}} stands, and send th
 
 ---
 
-You are drafting part of a "System Atlas" for {{PROJECT}}: {{ONE_LINE}} (repository root: {{ROOT}}). The atlas is a plain-English map of every system in the codebase. Its first reader is {{READER}}. Its second is a fresh AI coding session that needs to orient fast.
+You are drafting part of a "Field Guide" for {{PROJECT}}: {{ONE_LINE}} (repository root: {{ROOT}}). The guide is a plain-English map of every system in the codebase. Its first reader is {{READER}}. Its second is a fresh AI coding session that needs to orient fast.
 
 READ-ONLY job: change no file except your output file. Run no command that changes state (no git commit or checkout, no installs, no builds or scripts that write). Open every file you reason about with the Read tool, not cat or grep in a shell.
 
 YOUR SYSTEMS (ids): {{IDS}}.
-Each already has an entry in {{ATLAS_JSON}} with its `owns` globs (the files that belong to it){{PREASSIGNED}}. Print one with `node {{CLI}} <id> --json`; never read atlas.json whole. `node {{CLI}} inventory` lists the files by folder.
+Each already has an entry in {{GUIDE_JSON}} with its `owns` globs (the files that belong to it){{PREASSIGNED}}. Print one with `node {{CLI}} <id> --json`; never read guide.json whole. `node {{CLI}} inventory` lists the files by folder.
 
 FIRST read these instruction and rule files: {{INSTRUCTION_FILES}} (in full; for a very long one, the sections named). They hold the project's curated knowledge, but the CODE wins when they disagree: report any disagreement in `ownershipNotes`.
 THEN read the code your systems own: entry points first, then the core logic, then configuration. {{STACK_HINTS}}
 
-Every system id in the atlas (use ONLY these in `connects`): {{ALL_IDS}}.
+Every system id in the guide (use ONLY these in `connects`): {{ALL_IDS}}.
 
 WRITE one JSON object to {{OUT}} with the Write tool:
 {

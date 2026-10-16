@@ -1,4 +1,4 @@
-/** The shapes of atlas.json and atlas.config.json. */
+/** The shapes of guide.json and guide.config.json. */
 
 export type KeyFile = { path: string; what: string }
 
@@ -48,7 +48,7 @@ export type Group = { id: string; name: string; blurb: string }
 export type Flow = { name: string; steps: { system: string; text: string }[] }
 export type Term = { term: string; meaning: string }
 
-export type Atlas = {
+export type Guide = {
   title: string
   about?: string
   overview?: string
@@ -64,13 +64,13 @@ export const SYSTEM_FIELDS = [
   "id", "group", "name", "oneLiner", "summary", "journey", "owns", "keyFiles",
   "models", "jobs", "switches", "connects", "rules", "checks", "watchOuts",
 ] as const
-/** CLI subcommands: `atlas <id>` could never print a system with one of these ids. */
+/** CLI subcommands: `guide <id>` could never print a system with one of these ids. */
 export const SUBCOMMANDS = ["check", "render", "init", "inventory", "changed", "merge", "stamp", "overview", "help"] as const
 export const ARRAY_FIELDS =["journey", "owns", "keyFiles", "models", "jobs", "switches", "connects", "rules", "checks", "watchOuts"] as const
 
 export type Config = {
-  /** atlas.json, relative to the config file's folder. */
-  atlas: string
+  /** guide.json, relative to the config file's folder. */
+  guide: string
   /** The repository root, relative to the config file's folder. */
   root: string
   /** "git": tracked plus untracked-but-not-ignored files; "walk": a directory walk. */

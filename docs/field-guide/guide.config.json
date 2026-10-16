@@ -1,5 +1,5 @@
 {
-  "atlas": "atlas.json",
+  "guide": "guide.json",
   "root": "../..",
   "files": "git",
   "include": [

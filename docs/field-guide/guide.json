@@ -1,17 +1,17 @@
 {
-  "title": "System Atlas plugin: its own atlas",
-  "about": "The System Atlas plugin for Claude Code, mapped with itself: a bundled CLI that projects vendor, the two skills that build and update an atlas, and the tests that prove the check.",
-  "overview": "Projects run one bundled file, dist/atlas.mjs, built from src/. Its lookup prints one system's entry, its check keeps every file on the map and every name real, and its render command writes a page. The plugin's two skills drive Claude through a build (inventory, confirmed grouping, parallel drafting, adversarial fact-check) and an update (re-check the systems whose files changed). The test suite proves every check assertion by injecting the defect it exists for.",
+  "title": "Field Guide plugin: its own guide",
+  "about": "The Field Guide plugin for Claude Code, mapped with itself: a bundled CLI that projects vendor, the two skills that build and update a guide, and the tests that prove the check.",
+  "overview": "Projects run one bundled file, dist/guide.mjs, built from src/. Its lookup prints one system's entry, its check keeps every file on the map and every name real, and its render command writes a page. The plugin's two skills drive Claude through a build (inventory, confirmed grouping, parallel drafting, adversarial fact-check) and an update (re-check the systems whose files changed). The test suite proves every check assertion by injecting the defect it exists for.",
   "groups": [
     {
       "id": "cli",
       "name": "The CLI projects vendor",
-      "blurb": "One file, dist/atlas.mjs, built from src/: lookup, check, render and the build helpers."
+      "blurb": "One file, dist/guide.mjs, built from src/: lookup, check, render and the build helpers."
     },
     {
       "id": "plugin",
       "name": "The Claude Code plugin",
-      "blurb": "The skills that build and update an atlas, and the manifests that install them."
+      "blurb": "The skills that build and update a guide, and the manifests that install them."
     },
     {
       "id": "dev",
@@ -25,9 +25,9 @@
       "group": "cli",
       "name": "Lookup",
       "oneLiner": "Prints one system, a file's owner, or the systems that mention a word.",
-      "summary": "The pure functions behind `atlas <id | path | word>`: glob matching, path normalisation, ownership, the plain-text entry and index, and word search. They read no files, so the check and the lookup share them and cannot disagree about who owns a file.",
+      "summary": "The pure functions behind `guide <id | path | word>`: glob matching, path normalisation, ownership, the plain-text entry and index, and word search. They read no files, so the check and the lookup share them and cannot disagree about who owns a file.",
       "journey": [
-        "A session runs node docs/atlas/atlas.mjs with an id, a path or words",
+        "A session runs node docs/field-guide/guide.mjs with an id, a path or words",
         "An exact id prints that system's entry under fixed section labels",
         "A path is normalised (backslashes, a leading ./) and matched against every system's owns globs",
         "Anything else is searched: every word must appear, first in the name and summary, then deeper in the entry"
@@ -43,7 +43,7 @@
         },
         {
           "path": "src/types.ts",
-          "what": "The atlas.json and atlas.config.json shapes, job kinds and reserved command words."
+          "what": "The guide.json and guide.config.json shapes, job kinds and reserved command words."
         }
       ],
       "models": [],
@@ -72,11 +72,11 @@
       "id": "cli-entry",
       "group": "cli",
       "name": "Command line",
-      "oneLiner": "Parses the arguments, finds the atlas folder and runs the right command.",
-      "summary": "The entry point of dist/atlas.mjs. It finds the folder holding atlas.config.json (the --dir flag, then the script's own folder, then ./docs/atlas), resolves the repo root, lists the repo's files with git, and dispatches to a subcommand or the lookup.",
+      "oneLiner": "Parses the arguments, finds the guide folder and runs the right command.",
+      "summary": "The entry point of dist/guide.mjs. It finds the folder holding guide.config.json (the --dir flag, then the script's own folder, then ./docs/field-guide), resolves the repo root, lists the repo's files with git, and dispatches to a subcommand or the lookup.",
       "journey": [
         "The vendored script starts and parses flags",
-        "It locates atlas.config.json and the repo root",
+        "It locates guide.config.json and the repo root",
         "A subcommand runs, or the lookup prints an entry",
         "A usage error exits 2; a failed check or an unmatched lookup exits 1"
       ],
@@ -91,7 +91,7 @@
         },
         {
           "path": "src/repo.ts",
-          "what": "Finding the atlas folder and repo root, loading config, listing files with git ls-files."
+          "what": "Finding the guide folder and repo root, loading config, listing files with git ls-files."
         }
       ],
       "models": [],
@@ -99,7 +99,7 @@
       "switches": [
         {
           "name": "--dir",
-          "what": "Points the CLI at a non-default atlas folder."
+          "what": "Points the CLI at a non-default guide folder."
         },
         {
           "name": "--search",
@@ -113,11 +113,11 @@
         },
         {
           "to": "coverage-check",
-          "why": "Runs `atlas check` and sets the exit code."
+          "why": "Runs `guide check` and sets the exit code."
         },
         {
           "to": "page",
-          "why": "Runs `atlas render`."
+          "why": "Runs `guide render`."
         },
         {
           "to": "build-helpers",
@@ -131,17 +131,17 @@
       "watchOuts": [
         "Never add a subcommand without adding it to SUBCOMMANDS, because a system with that id could then never be printed.",
         "Always list files through git ls-files with --others, because a new untracked file must fail the check before it is committed.",
-        "Never let a command accept stray words, because `atlas stamp duty` would move the update baseline instead of searching."
+        "Never let a command accept stray words, because `guide stamp duty` would move the update baseline instead of searching."
       ]
     },
     {
       "id": "coverage-check",
       "group": "cli",
       "name": "The check",
-      "oneLiner": "Fails when a file is off the map or a name the atlas uses is gone.",
-      "summary": "`atlas check` runs 39 named assertions in five sections: shape, coverage, names, the optional stack add-ons, and the lookup. It reads files and runs git only. It proves the map and the names, never the prose.",
+      "oneLiner": "Fails when a file is off the map or a name the guide uses is gone.",
+      "summary": "`guide check` runs 39 named assertions in five sections: shape, coverage, names, the optional stack add-ons, and the lookup. It reads files and runs git only. It proves the map and the names, never the prose.",
       "journey": [
-        "It loads the config and atlas.json and lists the repo's files",
+        "It loads the config and guide.json and lists the repo's files",
         "Shape: every system has every field, a known group and real prose",
         "Coverage: every file in scope is owned and every glob matches",
         "Names: key files, rules, checks, jobs, switches, models, connections and flows all exist",
@@ -185,15 +185,15 @@
       ],
       "watchOuts": [
         "Never add an assertion without a defect in test/run.mjs that turns its code red, because the suite fails on any unproven code.",
-        "Always skip the atlas folder and rendered pages when searching for switches, because they name every switch and would make the search vacuous."
+        "Always skip the guide folder and rendered pages when searching for switches, because they name every switch and would make the search vacuous."
       ]
     },
     {
       "id": "page",
       "group": "cli",
       "name": "Rendered page",
-      "oneLiner": "Writes the atlas as one self-contained, offline HTML page.",
-      "summary": "`atlas render` injects the atlas JSON, plus counts taken from the repo, into a neutral page template at a marker. The page uses system fonts and inline script only, so it makes no network request, and it escapes `<` so data cannot close the script element.",
+      "oneLiner": "Writes the guide as one self-contained, offline HTML page.",
+      "summary": "`guide render` injects the guide JSON, plus counts taken from the repo, into a neutral page template at a marker. The page uses system fonts and inline script only, so it makes no network request, and it escapes `<` so data cannot close the script element.",
       "journey": [
         "The command counts files, jobs, models and checks and reads the commit",
         "It replaces the template's marker with the JSON",
@@ -202,7 +202,7 @@
       "owns": [
         "src/render.ts",
         "src/html.d.ts",
-        "templates/atlas.html"
+        "templates/guide.html"
       ],
       "keyFiles": [
         {
@@ -210,7 +210,7 @@
           "what": "Collects the stats and injects the JSON at the marker."
         },
         {
-          "path": "templates/atlas.html",
+          "path": "templates/guide.html",
           "what": "The page: groups of tiles, the dossier, jobs table, glossary, light and dark themes."
         }
       ],
@@ -220,7 +220,7 @@
       "connects": [
         {
           "to": "cli-entry",
-          "why": "Runs when a user types atlas render."
+          "why": "Runs when a user types guide render."
         },
         {
           "to": "build-test",
@@ -241,7 +241,7 @@
       "group": "cli",
       "name": "Build and update helpers",
       "oneLiner": "Vendors the CLI, inventories the repo, merges agent output and tracks changes.",
-      "summary": "The commands the skills drive. init copies the CLI into the project and detects a config; inventory lists the files by folder; merge folds drafting and fact-check JSON (a file, or a run folder read in name order) into atlas.json, counts changed fields and can remove glossary terms and flows; changed maps files changed since a commit to their systems (paths read with -z, relative to the root, so non-ASCII names and monorepo packages work); stamp records the verified commit.",
+      "summary": "The commands the skills drive. init copies the CLI into the project and detects a config; inventory lists the files by folder; merge folds drafting and fact-check JSON (a file, or a run folder read in name order) into guide.json, counts changed fields and can remove glossary terms and flows; changed maps files changed since a commit to their systems (paths read with -z, relative to the root, so non-ASCII names and monorepo packages work); stamp records the verified commit.",
       "journey": [
         "init vendors the CLI and writes the config, README and .gitignore",
         "inventory shows folder sizes and the instruction files to name in prompts",
@@ -251,7 +251,7 @@
       "owns": [
         "src/init.ts",
         "src/maintain.ts",
-        "templates/atlas-readme.md"
+        "templates/guide-readme.md"
       ],
       "keyFiles": [
         {
@@ -263,8 +263,8 @@
           "what": "merge, changed and stamp."
         },
         {
-          "path": "templates/atlas-readme.md",
-          "what": "The README init writes into a project's atlas folder."
+          "path": "templates/guide-readme.md",
+          "what": "The README init writes into a project's guide folder."
         }
       ],
       "models": [],
@@ -294,21 +294,21 @@
         "test/run.mjs"
       ],
       "watchOuts": [
-        "Always write atlas.json back with its own line endings, because a CRLF checkout would otherwise show every line changed."
+        "Always write guide.json back with its own line endings, because a CRLF checkout would otherwise show every line changed."
       ]
     },
     {
       "id": "skills",
       "group": "plugin",
       "name": "Build and update skills",
-      "oneLiner": "The procedures Claude follows to build an atlas and keep it current.",
-      "summary": "Two user-invoked skills. /system-atlas:build inventories the repo, proposes systems for the user to confirm, fans out drafting subagents, then adversarial fact-checkers, and wires in the check and a session pointer. /system-atlas:update re-checks only the systems whose files changed.",
+      "oneLiner": "The procedures Claude follows to build a guide and keep it current.",
+      "summary": "Two user-invoked skills. /field-guide:build inventories the repo, proposes systems for the user to confirm, fans out drafting subagents, then adversarial fact-checkers, and wires in the check and a session pointer. /field-guide:update re-checks only the systems whose files changed.",
       "journey": [
-        "The user runs /system-atlas:build",
+        "The user runs /field-guide:build",
         "Claude vendors the CLI, inventories the repo and proposes systems",
         "The user confirms the grouping",
         "Drafting subagents write entries in parallel; fact-check subagents correct them",
-        "The check goes green, the page renders, and the user picks how sessions and CI find the atlas"
+        "The check goes green, the page renders, and the user picks how sessions and CI find the guide"
       ],
       "owns": [
         "skills/**"
@@ -372,8 +372,8 @@
       "summary": "The repository is both the plugin and its own marketplace: plugin.json names the plugin, and marketplace.json lists it with source ./ so users add the repo and install from it. The README and license ship with it.",
       "journey": [
         "A user adds the repo as a marketplace",
-        "They install system-atlas from it",
-        "Its skills appear as /system-atlas:build and /system-atlas:update"
+        "They install field-guide from it",
+        "Its skills appear as /field-guide:build and /field-guide:update"
       ],
       "owns": [
         ".claude-plugin/**",
@@ -414,11 +414,11 @@
       "group": "dev",
       "name": "Bundling and tests",
       "oneLiner": "Bundles src/ into one file and proves every check assertion.",
-      "summary": "esbuild bundles src/ and the inlined templates into dist/atlas.mjs, which is committed because projects vendor it. The test suite builds a fixture repo in a temp folder, proves every check code red with an injected defect, and exercises every command.",
+      "summary": "esbuild bundles src/ and the inlined templates into dist/guide.mjs, which is committed because projects vendor it. The test suite builds a fixture repo in a temp folder, proves every check code red with an injected defect, and exercises every command.",
       "journey": [
         "A contributor edits src/ or templates/",
-        "npm run build rewrites dist/atlas.mjs",
-        "npm run check typechecks, fails on a stale dist, and runs the suite and this atlas's own check"
+        "npm run build rewrites dist/guide.mjs",
+        "npm run check typechecks, fails on a stale dist, and runs the suite and this guide's own check"
       ],
       "owns": [
         "package.json",
@@ -433,7 +433,7 @@
       "keyFiles": [
         {
           "path": "scripts/build.mjs",
-          "what": "Bundles dist/atlas.mjs; --verify fails when it is stale."
+          "what": "Bundles dist/guide.mjs; --verify fails when it is stale."
         },
         {
           "path": "test/run.mjs",
@@ -444,7 +444,7 @@
           "what": "The fake repo that exercises every add-on and job kind."
         },
         {
-          "path": "dist/atlas.mjs",
+          "path": "dist/guide.mjs",
           "what": "The bundled CLI that projects vendor."
         }
       ],
@@ -455,7 +455,7 @@
           "kind": "package-script",
           "ref": "build",
           "when": "on demand, after editing src/",
-          "what": "Rewrites dist/atlas.mjs."
+          "what": "Rewrites dist/guide.mjs."
         },
         {
           "name": "Typecheck",
@@ -483,17 +483,17 @@
       ],
       "watchOuts": [
         "Always anchor a CLI mutation on text that occurs exactly once in the bundle, because a duplicate anchor mutates the wrong site and proves nothing.",
-        "Never edit dist/atlas.mjs by hand, because the freshness check rebuilds it from src/."
+        "Never edit dist/guide.mjs by hand, because the freshness check rebuilds it from src/."
       ]
     }
   ],
   "flows": [
     {
-      "name": "Building an atlas",
+      "name": "Building a guide",
       "steps": [
         {
           "system": "skills",
-          "text": "The user runs /system-atlas:build."
+          "text": "The user runs /field-guide:build."
         },
         {
           "system": "build-helpers",

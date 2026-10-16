@@ -1,12 +1,12 @@
 {
-  "name": "system-atlas",
+  "name": "field-guide",
   "owner": {
     "name": "OWNER_NAME"
   },
-  "description": "The System Atlas plugin for Claude Code.",
+  "description": "The Field Guide plugin for Claude Code.",
   "plugins": [
     {
-      "name": "system-atlas",
+      "name": "field-guide",
       "source": "./",
       "description": "Build and maintain a plain-English, code-verified map of every system in your repo.",
       "version": "0.1.0",

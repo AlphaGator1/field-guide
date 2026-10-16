@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>System Atlas</title>
+<title>Field Guide</title>
 <style>
-/* A neutral page: a masthead band, then a two-pane atlas (system tiles by group on the
+/* A neutral page: a masthead band, then a two-pane guide (system tiles by group on the
    left, the selected system's dossier pinned on the right, stacked on phones), then the
    jobs table and the glossary. System fonts only: the page makes no network request. */
 :root {
@@ -143,12 +143,12 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
 <body>
 <header class="mast">
   <div class="wrap">
-    <div class="eyebrow">System Atlas · how this project is built</div>
-    <h1 id="title">System Atlas</h1>
+    <div class="eyebrow">Field Guide · how this project is built</div>
+    <h1 id="title">Field Guide</h1>
     <p id="about"></p>
     <div class="stats" id="stats"></div>
     <div class="searchbar">
-      <label for="q" class="sr-only">Search the atlas</label>
+      <label for="q" class="sr-only">Search the guide</label>
       <input id="q" type="search" placeholder="Search a system, file path, job, switch or term" autocomplete="off">
       <span class="hint" id="qstatus" aria-live="polite">Pick a system to see how it works.</span>
     </div>
@@ -175,10 +175,10 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   </div>
 </main>
 
-<script type="application/json" id="atlas-data">/*ATLAS_DATA*/</script>
+<script type="application/json" id="guide-data">/*GUIDE_DATA*/</script>
 <script>
 (function () {
-  var A = JSON.parse(document.getElementById("atlas-data").textContent);
+  var A = JSON.parse(document.getElementById("guide-data").textContent);
   var KIND = { "github-action": "GitHub Action", "vercel-cron": "Vercel Cron", "package-script": "package script", "make-target": "make target", "file": "script", "external": "external" };
   var byId = {}, groupById = {}, laneById = {};
   A.systems.forEach(function (s) { byId[s.id] = s; });
@@ -202,8 +202,8 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
     return new RegExp("^" + re + "$");
   }
 
-  document.title = A.title || "System Atlas";
-  document.getElementById("title").textContent = A.title || "System Atlas";
+  document.title = A.title || "Field Guide";
+  document.getElementById("title").textContent = A.title || "Field Guide";
   document.getElementById("about").textContent = A.about || "";
   var st = A.stats || {};
   var statList = [[A.systems.length, "systems"], [A.groups.length, "groups"], [st.files, "files mapped"], [st.jobs || null, "jobs"], [st.models || null, "data models"], [st.checks || null, "checks named"]];
@@ -318,8 +318,8 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   document.getElementById("gloss").innerHTML = gloss.map(function (g) { return "<div><dt>" + esc(g.term) + "</dt><dd>" + esc(g.meaning) + "</dd></div>"; }).join("");
 
   var v = A.verified ? " The prose was last verified against commit <code>" + esc(String(A.verified.commit).slice(0, 12)) + "</code> on " + esc(A.verified.date) + "." : "";
-  document.getElementById("foot").innerHTML = "<p>Generated from <code>" + esc(st.source || "atlas.json") + "</code> at commit <code>" + esc(st.commit || "?") + "</code> on " + esc(st.generated || "?") + "." + v + "</p>" +
-    "<p><code>atlas check</code> fails when a file belongs to no system or a name the atlas uses no longer exists. It does not verify the prose: when a system changes how it works, its entry is re-read by hand.</p>";
+  document.getElementById("foot").innerHTML = "<p>Generated from <code>" + esc(st.source || "guide.json") + "</code> at commit <code>" + esc(st.commit || "?") + "</code> on " + esc(st.generated || "?") + "." + v + "</p>" +
+    "<p><code>guide check</code> fails when a file belongs to no system or a name the guide uses no longer exists. It does not verify the prose: when a system changes how it works, its entry is re-read by hand.</p>";
 
   var start = (location.hash || "").replace("#", "");
   select(byId[start] ? start : null, false);
