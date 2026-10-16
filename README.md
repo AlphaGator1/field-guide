@@ -21,6 +21,15 @@ The plugin builds the guide with parallel drafting subagents, then has a
 second set of **adversarial** subagents fact-check every claim against the
 code before it is accepted.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/paraflow-guide-dark.png">
+  <img alt="The rendered field guide for ParaFlow: system tiles grouped by area on the left, the Text injection system's entry open on the right, and its connected systems highlighted." src="docs/images/paraflow-guide-light.png">
+</picture>
+
+*The rendered page for the bundled [ParaFlow example](examples/paraflow/):
+pick a system and its entry opens beside the map, while the systems it
+connects to light up with the reason.*
+
 > Status: 0.1.0. Tested on two outside repositories (below). See
 > [`examples/paraflow/`](examples/paraflow/) for a complete guide and its
 > rendered page.

@@ -378,7 +378,8 @@
       "owns": [
         ".claude-plugin/**",
         "README.md",
-        "LICENSE"
+        "LICENSE",
+        "docs/images/**"
       ],
       "keyFiles": [
         {
@@ -392,6 +393,10 @@
         {
           "path": "README.md",
           "what": "What it is, install, cost, limits."
+        },
+        {
+          "path": "docs/images/paraflow-guide-light.png",
+          "what": "The README screenshot of the ParaFlow example page (a dark twin sits beside it)."
         }
       ],
       "models": [],
