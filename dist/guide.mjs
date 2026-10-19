@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Field Guide CLI 0.1.0. Generated from src/ by scripts/build.mjs: do not edit by hand.
+// Field Guide CLI 0.2.0. Generated from src/ by scripts/build.mjs: do not edit by hand.
 // A project vendors this one file (guide init); replace it with a newer release to upgrade.
 // Reads files and runs local git only: no network. License: MIT.
 
@@ -1374,7 +1374,7 @@ function writePage(ctx, guide, out) {
 }
 
 // src/cli.ts
-var VERSION = true ? "0.1.0" : "dev";
+var VERSION = true ? "0.2.0" : "dev";
 var ARITY = {
   check: [0, 0],
   render: [0, 1],
