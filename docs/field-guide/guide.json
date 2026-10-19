@@ -193,14 +193,16 @@
       "group": "cli",
       "name": "Rendered page",
       "oneLiner": "Writes the guide as one self-contained, offline HTML page.",
-      "summary": "`guide render` injects the guide JSON, plus counts taken from the repo, into a neutral page template at a marker. The page uses system fonts and inline script only, so it makes no network request, and it escapes `<` so data cannot close the script element.",
+      "summary": "`guide render` injects the guide JSON, plus counts taken from the repo and the size of each system's code, into a neutral page template at a marker. The page uses system fonts and inline script only, so it makes no network request, and it escapes `<` so data cannot close the script element.",
       "journey": [
         "The command counts files, jobs, models and checks and reads the commit",
+        "It measures each system's code: non-blank code lines and branch points, leaving out prose, data, lockfiles, binaries and generated files",
         "It replaces the template's marker with the JSON",
         "A reader picks a system tile and its dossier opens beside the map"
       ],
       "owns": [
         "src/render.ts",
+        "src/metrics.ts",
         "src/html.d.ts",
         "templates/guide.html"
       ],
@@ -208,6 +210,10 @@
         {
           "path": "src/render.ts",
           "what": "Collects the stats and injects the JSON at the marker."
+        },
+        {
+          "path": "src/metrics.ts",
+          "what": "Counts each system's code lines and branch points from the files it owns."
         },
         {
           "path": "templates/guide.html",

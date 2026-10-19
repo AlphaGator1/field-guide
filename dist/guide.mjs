@@ -1017,6 +1017,92 @@ function stamp(ctx, guide) {
 import { writeFileSync as writeFileSync3 } from "fs";
 import { relative as relative4, resolve as resolve3 } from "path";
 
+// src/metrics.ts
+import { execFileSync as execFileSync2 } from "child_process";
+var DATA_EXTENSIONS = [
+  "json",
+  "jsonc",
+  "json5",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "env",
+  "xml",
+  "plist",
+  "csv",
+  "tsv",
+  "svg",
+  "lock",
+  "map",
+  "snap"
+];
+var DATA_BASENAMES = ["go.sum", "Package.resolved"];
+function isCodePath(path, prose) {
+  if (matchesAny(prose, path)) return false;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (DATA_BASENAMES.includes(name)) return false;
+  const dot = name.lastIndexOf(".");
+  return dot < 0 || !DATA_EXTENSIONS.includes(name.slice(dot + 1).toLowerCase());
+}
+var BRANCH = /(?<![.$\w])(?:if|elif|for|foreach|while|case|catch|except|when|match)\b|&&|\|\||\s\?\s/g;
+var MINIFIED_LINE = 3e3;
+var MINIFIED_AVERAGE = 250;
+var MINIFIED_MIN_LINES = 5;
+function countCode(text) {
+  let codeLines = 0;
+  let chars = 0;
+  for (const line of text.split("\n")) {
+    if (line.length > MINIFIED_LINE) return { codeLines: 0, branchPoints: 0, minified: true };
+    if (line.trim() === "") continue;
+    codeLines++;
+    chars += line.length;
+  }
+  if (codeLines >= MINIFIED_MIN_LINES && chars / codeLines > MINIFIED_AVERAGE) return { codeLines: 0, branchPoints: 0, minified: true };
+  return { codeLines, branchPoints: text.match(BRANCH)?.length ?? 0, minified: false };
+}
+function generatedPaths(root, paths, mode) {
+  const generated = /* @__PURE__ */ new Set();
+  if (mode === "walk" || !paths.length) return generated;
+  let out;
+  try {
+    out = execFileSync2("git", ["check-attr", "-z", "--stdin", "linguist-generated"], {
+      cwd: root,
+      input: `${paths.join("\0")}\0`,
+      encoding: "utf8",
+      maxBuffer: 1 << 28,
+      stdio: ["pipe", "pipe", "ignore"]
+    });
+  } catch {
+    return generated;
+  }
+  const parts = out.split("\0");
+  for (let i = 0; i + 2 < parts.length; i += 3) if (parts[i + 2] === "set" || parts[i + 2] === "true") generated.add(parts[i]);
+  return generated;
+}
+function systemSizes(ctx, guide, files) {
+  const prose = ctx.config.prose ?? DEFAULT_PROSE;
+  const owned = files.filter((p) => isCodePath(p, prose)).map((path) => ({ path, owners: guide.systems.filter((s) => matchesAny(s.owns ?? [], path)) })).filter((f) => f.owners.length > 0);
+  const generated = generatedPaths(ctx.root, owned.map((f) => f.path), ctx.config.files);
+  const sums = new Map(guide.systems.map((s) => [s.id, { files: 0, codeLines: 0, branchPoints: 0 }]));
+  for (const { path, owners } of owned) {
+    if (generated.has(path)) continue;
+    const text = readText(ctx.root, path);
+    if (text === void 0) continue;
+    const code = countCode(text);
+    if (code.minified) continue;
+    for (const s of owners) {
+      const sum = sums.get(s.id);
+      sum.files += 1 / owners.length;
+      sum.codeLines += code.codeLines / owners.length;
+      sum.branchPoints += code.branchPoints / owners.length;
+    }
+  }
+  return new Map([...sums].map(([id, v]) => [id, { files: Math.round(v.files), codeLines: Math.round(v.codeLines), branchPoints: Math.round(v.branchPoints) }]));
+}
+
 // templates/guide.html
 var guide_default = `<!doctype html>
 <html lang="en">
@@ -1364,7 +1450,7 @@ function renderPage(ctx, guide) {
     generated: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
     source: normalizePath(relative4(ctx.root, ctx.guidePath))
   };
-  const json = JSON.stringify({ ...guide, stats }).replace(/</g, "\\u003c");
+  const json = JSON.stringify({ ...guide, stats, map: { sizes: Object.fromEntries(systemSizes(ctx, guide, files)) } }).replace(/</g, "\\u003c");
   return guide_default.replace(MARKER, () => json);
 }
 function writePage(ctx, guide, out) {

@@ -44,6 +44,9 @@ export type System = {
   watchOuts: string[]
 }
 
+/** What a system's code weighs: files, non-blank code lines and branch points (see src/metrics.ts). */
+export type Size = { files: number; codeLines: number; branchPoints: number }
+
 export type Group = { id: string; name: string; blurb: string }
 export type Flow = { name: string; steps: { system: string; text: string }[] }
 export type Term = { term: string; meaning: string }

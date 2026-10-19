@@ -1,11 +1,13 @@
 /**
  * `guide render [out.html]`: the guide as one self-contained web page (no
- * external requests: system fonts, inline script). Reads files and
- * `git rev-parse` only. It does not validate the guide; run `guide check` first.
+ * external requests: system fonts, inline script). Reads files and local git
+ * (`rev-parse`, `check-attr`) only. It does not validate the guide; run
+ * `guide check` first.
  */
 import { writeFileSync } from "fs"
 import { relative, resolve } from "path"
 import { globToRegExp, normalizePath } from "./lookup"
+import { systemSizes } from "./metrics"
 import { git, listRepoFiles, universe, type Ctx } from "./repo"
 import type { Guide } from "./types"
 // esbuild inlines the template as a string (--loader:.html=text), so the bundled CLI is one file.
@@ -27,7 +29,7 @@ export function renderPage(ctx: Ctx, guide: Guide): string {
     source: normalizePath(relative(ctx.root, ctx.guidePath)),
   }
   // `<` is escaped so no string in the data can close the <script> element early.
-  const json = JSON.stringify({ ...guide, stats }).replace(/</g, "\\u003c")
+  const json = JSON.stringify({ ...guide, stats, map: { sizes: Object.fromEntries(systemSizes(ctx, guide, files)) } }).replace(/</g, "\\u003c")
   return template.replace(MARKER, () => json)
 }
 
