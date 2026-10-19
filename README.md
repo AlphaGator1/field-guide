@@ -127,6 +127,26 @@ node docs/field-guide/guide.mjs render [out]     # one self-contained HTML page
 node docs/field-guide/guide.mjs changed [commit] # systems whose files changed since a commit
 ```
 
+## Keeping it current
+
+A guide is only useful while it matches the code. Three things keep it there,
+and the build offers all three:
+
+- **Every session, in the same change.** The CLAUDE.md block (or project
+  skill) the build adds tells Claude sessions to run `guide.mjs changed HEAD`
+  before finishing. It lists the systems their changes touched; they fix those
+  entries and place any new file in the same change. Without that block,
+  nothing tells a session to update the guide.
+- **CI, on every push.** `guide.mjs check` fails when a file is off the map
+  or a name the guide uses is gone. It cannot tell when a sentence has gone
+  stale.
+- **A catch-up, when it has drifted.** `/field-guide:update` re-checks every
+  system whose files changed since the guide was last verified, and updates
+  the vendored CLI.
+
+If your project's CLAUDE.md is managed by hand, make sure it keeps the
+"keep it current" line; that line is what makes sessions update the guide.
+
 ## Cost
 
 **A build is not cheap.** Each drafting agent reads its systems' code and the

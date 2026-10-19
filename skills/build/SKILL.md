@@ -187,10 +187,16 @@ Ask the user two questions, then do what they choose. The templates are in
    project with no CLAUDE.md or AGENTS.md), or nothing. Before appending a
    block, tell the user how many lines and bytes it adds once `{{DIR}}` is
    replaced, and ask whether their CLAUDE.md is held to a size limit; if it
-   is, offer the compact block.
+   is, offer the compact block. Every block and the skill also tell sessions
+   to keep the guide current in the same change (`guide changed HEAD`, then
+   fix the entries it lists). If the user picks nothing, say plainly that no
+   session will then know to update the guide, so it will drift until someone
+   runs `/field-guide:update`.
 2. Where should the check run? A GitHub Actions workflow, a package.json
    script, both, or nowhere. Anything you add is itself a file and a job or
-   check: claim it in the guide and re-run `GUIDE check`.
+   check: claim it in the guide and re-run `GUIDE check`. If the user picks
+   nowhere, say plainly that nothing will then catch a new file left off the
+   map or a name the guide uses that is gone.
 
 Then run `GUIDE render` (it writes `<guide folder>/guide.html`; tell the user
 to open it) and `GUIDE stamp` (it records the commit the prose was verified

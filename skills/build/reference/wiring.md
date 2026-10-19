@@ -12,8 +12,12 @@ never Read guide.json whole (it is large):
 - `node {{DIR}}/guide.mjs` lists every system; `node {{DIR}}/guide.mjs <id>` prints one;
 - `node {{DIR}}/guide.mjs <path>` names a file's owner; `node {{DIR}}/guide.mjs --search <words>` searches entries, flows and the glossary.
 
-`node {{DIR}}/guide.mjs check` keeps every file on the map, not the prose:
-when you change how a system works, fix its entry in the same change.
+Keep it current in the same change. Before you finish, run
+`node {{DIR}}/guide.mjs changed HEAD` (or `changed <commit>` for work already
+committed): it lists the systems your changes touch. Fix the sentences in
+their entries that the change made untrue, put any new file in a system's
+`owns`, and run `node {{DIR}}/guide.mjs check`, which keeps every file on the
+map but cannot check the prose.
 ```
 
 ## A2. Compact CLAUDE.md block (for a CLAUDE.md held to a size budget)
@@ -23,7 +27,7 @@ Three lines; keep each on one line.
 ```markdown
 ## Field Guide
 Before you answer a question about a system or change its code, print ONE entry from the map: `node {{DIR}}/guide.mjs <id | path | --search words>` (no argument lists every system). Never Read `{{DIR}}/guide.json` whole (it is large).
-When you change how a system works, fix its entry in the same change; `node {{DIR}}/guide.mjs check` keeps every file on the map.
+Before you finish a change, run `node {{DIR}}/guide.mjs changed HEAD` and fix the entries of the systems it lists in the same change; `node {{DIR}}/guide.mjs check` must pass.
 ```
 
 ## B. Project skill: `.claude/skills/field-guide/SKILL.md`
@@ -45,9 +49,12 @@ is large); print one entry:
 - `node {{DIR}}/guide.mjs <path>`: the system that owns a file, and its entry
 - `node {{DIR}}/guide.mjs --search <words>`: everything that mentions them (entries, flows, overview, glossary)
 
-`node {{DIR}}/guide.mjs check` keeps every file on the map, not the prose.
-When you change how a system works, re-read its entry and fix the sentences
-that moved, in the same change.
+Keep it current in the same change. Before you finish, run
+`node {{DIR}}/guide.mjs changed HEAD` (or `changed <commit>` for work already
+committed): it lists the systems your changes touch. Re-read their entries
+and fix the sentences that moved, put any new file in a system's `owns`, and
+run `node {{DIR}}/guide.mjs check`, which keeps every file on the map but
+cannot check the prose.
 ```
 
 ## C. GitHub Actions workflow: `.github/workflows/guide.yml`
