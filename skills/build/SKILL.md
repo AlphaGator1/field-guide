@@ -182,8 +182,12 @@ read it; an entry over the size ratchet gets shorter prose (never raise
 Ask the user two questions, then do what they choose. The templates are in
 `PLUGIN/skills/build/reference/wiring.md`.
 1. How should Claude sessions find the guide? A block in CLAUDE.md
-   (recommended when the project has one), a project skill in
-   `.claude/skills/field-guide/`, or nothing.
+   (recommended: it is the wiring that was measured), the compact 3-line
+   block, a project skill in `.claude/skills/field-guide/` (unmeasured; for a
+   project with no CLAUDE.md or AGENTS.md), or nothing. Before appending a
+   block, tell the user how many lines and bytes it adds once `{{DIR}}` is
+   replaced, and ask whether their CLAUDE.md is held to a size limit; if it
+   is, offer the compact block.
 2. Where should the check run? A GitHub Actions workflow, a package.json
    script, both, or nowhere. Anything you add is itself a file and a job or
    check: claim it in the guide and re-run `GUIDE check`.

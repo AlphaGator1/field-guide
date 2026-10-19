@@ -336,7 +336,7 @@
         },
         {
           "path": "skills/build/reference/wiring.md",
-          "what": "Templates for the CLAUDE.md block, project skill and CI workflow."
+          "what": "Templates for the CLAUDE.md block (full and compact), project skill, CI workflow and package script."
         }
       ],
       "models": [],

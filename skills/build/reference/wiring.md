@@ -7,8 +7,8 @@ Templates for step 8. Replace {{DIR}} with the guide folder (default docs/field-
 
 `{{DIR}}/guide.json` maps every system in this repo: what it does, how it
 works, its key files, jobs, switches, connections, rules and checks. Before
-opening a system's code, print ONE entry; never Read guide.json whole (it is
-large):
+you answer a question about a system or change its code, print ONE entry;
+never Read guide.json whole (it is large):
 - `node {{DIR}}/guide.mjs` lists every system; `node {{DIR}}/guide.mjs <id>` prints one;
 - `node {{DIR}}/guide.mjs <path>` names a file's owner; `node {{DIR}}/guide.mjs --search <words>` searches entries, flows and the glossary.
 
@@ -16,12 +16,25 @@ large):
 when you change how a system works, fix its entry in the same change.
 ```
 
+## A2. Compact CLAUDE.md block (for a CLAUDE.md held to a size budget)
+
+Three lines; keep each on one line.
+
+```markdown
+## Field Guide
+Before you answer a question about a system or change its code, print ONE entry from the map: `node {{DIR}}/guide.mjs <id | path | --search words>` (no argument lists every system). Never Read `{{DIR}}/guide.json` whole (it is large).
+When you change how a system works, fix its entry in the same change; `node {{DIR}}/guide.mjs check` keeps every file on the map.
+```
+
 ## B. Project skill: `.claude/skills/field-guide/SKILL.md`
+
+Not yet measured against A. A pointer outside CLAUDE.md is easy for sessions
+to miss, so offer this when the project has no CLAUDE.md or AGENTS.md.
 
 ```markdown
 ---
 name: field-guide
-description: Use before opening, planning or changing code in this repo. Prints one system's plain-English entry (what it does, how it works, key files, jobs, switches, rules, checks) from the Field Guide, or names the system that owns a file.
+description: Use before answering a question about this repo's code, or opening, planning or changing it. Prints one system's plain-English entry (what it does, how it works, key files, jobs, switches, rules, checks) from the Field Guide, or names the system that owns a file.
 ---
 
 `{{DIR}}/guide.json` maps every system in this repo. Never Read it whole (it

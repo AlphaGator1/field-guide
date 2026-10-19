@@ -66,6 +66,27 @@ open the code. They work well together. On SiliconExchange's own private
 TypeScript codebase (732 code files), the local graph found 70 of the 74
 caller files that grep found for 20 functions, with no false hits.
 
+## Does it save tokens?
+
+On code changes, yes; on quick questions, not measurably. We ran a blind A/B
+test on SiliconExchange's private codebase (about 1,170 tracked files, 24
+systems), using our internal original of this guide (same lookup, same check)
+and a CLAUDE.md block like the one the build offers. 36 fresh Claude Code
+sessions (Opus 5.5, xhigh effort) ran six tasks three times each, with the
+guide and with every trace of it removed. Answer keys were written from the
+code before any run, and grading was blind.
+
+- **Code changes:** about 30% fewer tokens processed and about a third less
+  context growth, with the same accuracy. The sessions that used the guide
+  also fixed its entry in the same change, and still came out cheaper.
+- **Finding and explaining:** no difference beyond run-to-run noise (about
+  ±20%). On some questions sessions grepped and never opened the guide.
+- **Accuracy:** a tie, about 92% of the answer keys in both arms.
+
+That is one repo, one model and three runs per task: an indication, not a
+guarantee. No run came near the context window's limit, so the saving is
+tokens, not room.
+
 ## Install
 
 In Claude Code:
