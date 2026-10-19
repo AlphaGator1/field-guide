@@ -369,7 +369,7 @@
       "group": "plugin",
       "name": "Plugin manifests and docs",
       "oneLiner": "Makes the repo installable as a Claude Code plugin and explains it.",
-      "summary": "The repository is both the plugin and its own marketplace: plugin.json names the plugin, and marketplace.json lists it with source ./ so users add the repo and install from it. The README and license ship with it.",
+      "summary": "The repository is both the plugin and its own marketplace: plugin.json names the plugin, and marketplace.json lists it with source ./ so users add the repo and install from it. The README and license ship with it, and docs/superpowers holds design documents and build plans for planned features.",
       "journey": [
         "A user adds the repo as a marketplace",
         "They install field-guide from it",
@@ -379,7 +379,8 @@
         ".claude-plugin/**",
         "README.md",
         "LICENSE",
-        "docs/images/**"
+        "docs/images/**",
+        "docs/superpowers/**"
       ],
       "keyFiles": [
         {
