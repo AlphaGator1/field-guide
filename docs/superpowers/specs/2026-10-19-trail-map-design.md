@@ -199,7 +199,9 @@ map stays put as code changes:
 
 - The left column gets a **Map | List** switch. The map is the default view
   when the page is at least 860px wide; the list (today's tiles) is the default
-  below that. The choice is remembered in the URL hash so links keep the view.
+  below that. A reader's choice is remembered in the browser (local storage,
+  guarded, falling back to the default), because the URL hash already holds
+  the selected system's id.
 - Clicking a hill does exactly what clicking a tile does today: it opens the
   system's entry in the existing panel. The search box selects and centres the
   matching hill when the map is showing.
@@ -222,7 +224,9 @@ flags:
 
 - `guide render [out.html]`: as today, now with the map as the default view.
 - `guide render --map-only [out.html]`: a page with just the map, the route
-  bar and the entry panel; no list, jobs table or glossary.
+  bar and the entry panel; no list, jobs table or glossary. It is the same
+  page template with the other parts switched off by a flag in its data, so
+  the entry panel's code is not duplicated.
 - `guide render --guide <file.json> [--root <folder>] [--map-only] <out.html>`:
   render a guide-shaped JSON that has no `guide.config.json`. The repo root
   defaults to the git top level of the JSON's folder. Config falls back to
