@@ -9,7 +9,7 @@
       "name": "field-guide",
       "source": "./",
       "description": "Build and maintain a plain-English, code-verified map of every system in your repo.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "category": "documentation"
     }
   ]

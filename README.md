@@ -30,7 +30,7 @@ code before it is accepted.
 pick a system and its entry opens beside the map, while the systems it
 connects to light up with the reason.*
 
-> Status: 0.2.0. Tested on two outside repositories (below). See
+> Status: 0.2.1. Tested on two outside repositories (below). See
 > [`examples/paraflow/`](examples/paraflow/) for a complete guide and its
 > rendered page.
 

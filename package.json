@@ -1,6 +1,6 @@
 {
   "name": "field-guide",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "A plain-English, code-verified map of every system in a repository, with a coverage check and a one-entry lookup. Ships as a Claude Code plugin.",
   "license": "MIT",
