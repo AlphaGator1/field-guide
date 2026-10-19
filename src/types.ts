@@ -47,6 +47,15 @@ export type System = {
 /** What a system's code weighs: files, non-blank code lines and branch points (see src/metrics.ts). */
 export type Size = { files: number; codeLines: number; branchPoints: number }
 
+/**
+ * One system drawn as a hill on the trail map (see src/layout.ts). `group` is the
+ * id of the declared group the system is in, or "" for a system whose group the
+ * guide does not declare. `x` and `y` are layout units, rounded to 0.1;
+ * `footprint` is a radius in the same units, from the exact code lines; `height`
+ * is 0 to 1: sqrt(branchPoints) over the guide's largest sqrt(branchPoints).
+ */
+export type Hill = { id: string; group: string; x: number; y: number; footprint: number; height: number } & Size
+
 export type Group = { id: string; name: string; blurb: string }
 export type Flow = { name: string; steps: { system: string; text: string }[] }
 export type Term = { term: string; meaning: string }

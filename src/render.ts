@@ -6,6 +6,7 @@
  */
 import { writeFileSync } from "fs"
 import { relative, resolve } from "path"
+import { layoutHills } from "./layout"
 import { globToRegExp, normalizePath } from "./lookup"
 import { systemSizes } from "./metrics"
 import { git, listRepoFiles, universe, type Ctx } from "./repo"
@@ -29,7 +30,7 @@ export function renderPage(ctx: Ctx, guide: Guide): string {
     source: normalizePath(relative(ctx.root, ctx.guidePath)),
   }
   // `<` is escaped so no string in the data can close the <script> element early.
-  const json = JSON.stringify({ ...guide, stats, map: { sizes: Object.fromEntries(systemSizes(ctx, guide, files)) } }).replace(/</g, "\\u003c")
+  const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)) } }).replace(/</g, "\\u003c")
   return template.replace(MARKER, () => json)
 }
 

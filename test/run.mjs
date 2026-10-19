@@ -317,11 +317,12 @@ t("the page makes no network request (no http(s) src or href)", !/(src|href)=["'
 // ---------------------------------------------------------------- 4b. trail map: sizes
 console.log("\n--- 4b. trail map: sizes ---")
 const pageData = (html) => JSON.parse(html.match(/<script type="application\/json" id="guide-data">([\s\S]*?)<\/script>/)[1])
-/** Render a repo and return its sizes (an empty object when the page carries none yet). */
+/** Render a repo and return each hill's size by system id (an empty object when the page carries no hills yet). */
 const sizesOf = (dir) => {
   const rr = run(dir, ["render"])
   const page = existsSync(join(dir, "docs/field-guide/guide.html")) ? readFileSync(join(dir, "docs/field-guide/guide.html"), "utf8") : ""
-  return { code: rr.code, out: rr.out, sizes: (page ? pageData(page).map?.sizes : undefined) ?? {} }
+  const hills = (page ? pageData(page).map?.hills : undefined) ?? []
+  return { code: rr.code, out: rr.out, sizes: Object.fromEntries(hills.map((h) => [h.id, { files: h.files, codeLines: h.codeLines, branchPoints: h.branchPoints }])) }
 }
 const A_TS = "if (a && b) {\n  for (const x of xs) { y = x ? 1 : 2 }\n\n} else if (c || d) {\n  while (e) {}\n}\ns.match(/x/)\n"
 const sizeFiles = (f) => {
@@ -396,6 +397,114 @@ t("sizes work in walk mode (where nothing is marked generated)",
   walked.out + JSON.stringify(walked.sizes.sizes))
 t("a guide system with no owns list owns no code, and render still succeeds",
   sizesOf(makeRepo({ guide: (a) => { delete sys(a, "accounts").owns } })).sizes.accounts?.codeLines === 0)
+
+// ---------------------------------------------------------------- 4c. trail map: layout
+console.log("\n--- 4c. trail map: layout ---")
+/** Render a repo and return its hills (empty when the page carries none), with the CLI's wall time in ms. A stale page is removed first. */
+const hillsOf = (dir) => {
+  const pagePath = join(dir, "docs/field-guide/guide.html")
+  if (existsSync(pagePath)) unlinkSync(pagePath)
+  const t0 = Date.now()
+  const rr = run(dir, ["render"])
+  const ms = Date.now() - t0
+  return { code: rr.code, out: rr.out, ms, hills: existsSync(pagePath) ? pageData(readFileSync(pagePath, "utf8")).map?.hills ?? [] : [] }
+}
+const bucketOf = (n) => (n < 1 ? 0 : 1 + Math.floor(Math.log2(n)))
+const finiteHill = (h) => [h.x, h.y, h.footprint, h.height].every(Number.isFinite)
+const gap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+/** Every pair of hills at least 0.75 of their footprints apart. */
+const footprintsApart = (hills) => hills.every((a, i) => hills.slice(i + 1).every((b) => gap(a, b) >= 0.75 * (a.footprint + b.footprint)))
+const diagonal = (hills) => {
+  const xs = hills.map((h) => h.x)
+  const ys = hills.map((h) => h.y)
+  return Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+}
+/** The groups in order of the angle of their centroid around the overall centre, turned to start at the first hill's group. */
+const groupOrder = (hills) => {
+  if (!hills.length) return []
+  const cx = hills.reduce((n, h) => n + h.x, 0) / hills.length
+  const cy = hills.reduce((n, h) => n + h.y, 0) / hills.length
+  const groups = [...new Set(hills.map((h) => h.group))]
+  const angle = (g) => {
+    const m = hills.filter((h) => h.group === g)
+    return Math.atan2(m.reduce((n, h) => n + h.y, 0) / m.length - cy, m.reduce((n, h) => n + h.x, 0) / m.length - cx)
+  }
+  const sorted = groups.sort((a, b) => angle(a) - angle(b))
+  const turn = sorted.indexOf(hills[0].group)
+  return [...sorted.slice(turn), ...sorted.slice(0, turn)]
+}
+/** n non-blank lines with no branch point in them. */
+const plainLines = (n) => Array.from({ length: n }, (_, i) => `const v${i} = ${i}\n`).join("")
+const BIG = "src/app/api/orders/big.ts"
+
+const twice = [hillsOf(makeRepo()), hillsOf(makeRepo())]
+t("layout is deterministic",
+  twice.every((x) => x.code === 0 && x.hills.length === 4 && x.hills.every(finiteHill)) && JSON.stringify(twice[0].hills) === JSON.stringify(twice[1].hills),
+  `${twice[0].out}${JSON.stringify(twice[0].hills)}\n${JSON.stringify(twice[1].hills)}`)
+
+// `orders` owns 3 lines of fixture code, so the file below makes it 51, then 55 (same bucket), then 203 (two buckets up).
+const bucketRepo = makeRepo({ files: (f) => { f[BIG] = plainLines(48) } })
+const before = hillsOf(bucketRepo)
+writeFileSync(join(bucketRepo, BIG), plainLines(52))
+const within = hillsOf(bucketRepo)
+writeFileSync(join(bucketRepo, BIG), plainLines(200))
+const across = hillsOf(bucketRepo)
+const ordersOf = (x) => x.hills.find((h) => h.id === "orders")
+const b0 = ordersOf(before)
+const b1 = ordersOf(within)
+const b2 = ordersOf(across)
+t("a size change within a bucket moves nothing",
+  before.code === 0 && within.code === 0 && before.hills.length === 4 && within.hills.length === 4 &&
+    b0 && b1 && b0.codeLines !== b1.codeLines && bucketOf(b0.codeLines) === bucketOf(b1.codeLines) && b1.footprint > b0.footprint &&
+    before.hills.every((h, i) => within.hills[i].id === h.id && within.hills[i].x === h.x && within.hills[i].y === h.y),
+  `${b0?.codeLines} -> ${b1?.codeLines} lines\n${JSON.stringify(before.hills)}\n${JSON.stringify(within.hills)}`)
+const moved = Math.max(...before.hills.map((h, i) => gap(h, across.hills[i])))
+t("a size change across a bucket moves hills only a little",
+  across.code === 0 && across.hills.length === 4 && b0 && b2 && bucketOf(b2.codeLines) > bucketOf(b0.codeLines) &&
+    moved <= 0.35 * diagonal(before.hills) && groupOrder(before.hills).join() === groupOrder(across.hills).join(),
+  `${b0?.codeLines} -> ${b2?.codeLines} lines moved a hill ${(moved / diagonal(before.hills)).toFixed(3)} of the diagonal; groups ${groupOrder(before.hills)} -> ${groupOrder(across.hills)}`)
+
+const sizedHills = hillsOf(sizeRepo).hills
+const maxBranches = (hills) => Math.max(...hills.map((h) => h.branchPoints))
+t("hills keep their footprints apart",
+  [before, within, across, twice[0]].every((x) => x.hills.length === 4 && footprintsApart(x.hills)) && sizedHills.length === 8 && footprintsApart(sizedHills),
+  JSON.stringify(sizedHills))
+t("a hill's footprint follows its code lines, and its height its branch points",
+  sizedHills.every((h) => Math.abs(h.footprint - (16 + 2.3 * Math.sqrt(h.codeLines))) < 1e-9) &&
+    maxBranches(sizedHills) > 0 && sizedHills.every((h) => Math.abs(h.height - Math.sqrt(h.branchPoints) / Math.sqrt(maxBranches(sizedHills))) < 1e-9) &&
+    Math.max(...sizedHills.map((h) => h.height)) === 1 &&
+    maxBranches(twice[0].hills) === 0 && twice[0].hills.every((h) => h.height === 0),
+  JSON.stringify(sizedHills))
+
+// Guides the check would reject, or never saw: the page still gets a layout.
+const degenerate = {
+  "one system, no connects and no flows": (a) => { a.systems = [sys(a, "orders")]; a.groups = [a.groups[0]]; sys(a, "orders").connects = []; delete a.flows },
+  "a system whose group is nowhere": (a) => { sys(a, "accounts").group = "nowhere" },
+  "a system with no group": (a) => { delete sys(a, "accounts").group },
+  "a system with no connects": (a) => { delete sys(a, "orders").connects },
+  "connections to a missing system and to itself": (a) => { sys(a, "orders").connects.push({ to: "nope", why: "x" }, { to: "orders", why: "x" }) },
+}
+const laid = Object.entries(degenerate).map(([name, guide]) => ({ name, ...hillsOf(makeRepo({ guide })) }))
+t("degenerate guides lay out",
+  laid.every((x) => x.code === 0 && x.hills.length === (x.name.startsWith("one") ? 1 : 4) && x.hills.every(finiteHill)),
+  laid.map((x) => `${x.name}: exit ${x.code}, ${x.hills.length} hills ${x.out}`).join("\n"))
+
+// 60 systems in 6 groups; neighbours in the list sit in different groups, so every connection is a cross-group one.
+const bigRepo = makeRepo({
+  guide: (a) => {
+    a.groups = Array.from({ length: 6 }, (_, g) => ({ id: `g${g}`, name: `Group ${g}`, blurb: "x" }))
+    a.systems = Array.from({ length: 60 }, (_, i) => ({
+      ...sizeSystem(`s${i}`, `g${i % 6}`, [`src/gen/s${i}.ts`]),
+      connects: [1, 2].map((k) => ({ to: `s${(i + k) % 60}`, why: "x" })),
+    }))
+    delete a.flows
+  },
+  files: (f) => { for (let i = 0; i < 60; i++) f[`src/gen/s${i}.ts`] = plainLines(10 * (i + 1)) },
+})
+const big = hillsOf(bigRepo)
+t("60 systems lay out quickly",
+  big.code === 0 && big.hills.length === 60 && big.hills.every(finiteHill) && big.ms < 2000 && footprintsApart(big.hills),
+  `exit ${big.code}, ${big.hills.length} hills in ${big.ms} ms ${big.out}`)
 
 // ---------------------------------------------------------------- 5. init and inventory
 console.log("\n--- 5. init and inventory ---")

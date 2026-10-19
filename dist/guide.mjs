@@ -1017,6 +1017,165 @@ function stamp(ctx, guide) {
 import { writeFileSync as writeFileSync3 } from "fs";
 import { relative as relative4, resolve as resolve3 } from "path";
 
+// src/layout.ts
+function sizeBucket(codeLines) {
+  return codeLines < 1 ? 0 : 1 + Math.floor(Math.log2(codeLines));
+}
+function footprintRadius(codeLines) {
+  return 16 + 2.3 * Math.sqrt(codeLines);
+}
+var ANCHOR_RX = 340;
+var ANCHOR_RY = 240;
+var JITTER = 70;
+var STEPS = 700;
+var SPRING = 0.04;
+var COHESION = 0.02;
+var PULL = 1e-3;
+var COLLISION = 0.1;
+var REST_SAME = 36;
+var REST_OTHER = 150;
+var CLEARANCE_SAME = { scale: 0.8, gap: 30 };
+var CLEARANCE_OTHER = { scale: 1.15, gap: 120 };
+var SETTLE_PASSES = 400;
+function fnv1a(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+function mulberry32(seed) {
+  let a = seed;
+  return () => {
+    a = a + 1831565813 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+var round1 = (v) => Math.round(v * 10) / 10;
+function layoutHills(guide, sizes) {
+  const systems = guide.systems;
+  const n = systems.length;
+  const size = systems.map((s) => sizes.get(s.id) ?? { files: 0, codeLines: 0, branchPoints: 0 });
+  const declared = /* @__PURE__ */ new Map();
+  for (const g of guide.groups ?? []) if (!declared.has(g.id)) declared.set(g.id, declared.size);
+  const rank = systems.map((s) => declared.get(s.group) ?? declared.size);
+  const used = [...new Set(rank)].sort((a, b) => a - b);
+  const slot = rank.map((r) => used.indexOf(r));
+  const px = new Float64Array(n);
+  const py = new Float64Array(n);
+  systems.forEach((s, i) => {
+    const turn = (-0.5 + slot[i] / used.length) * 2 * Math.PI;
+    const rand = mulberry32(fnv1a(s.id));
+    px[i] = (used.length > 1 ? ANCHOR_RX * Math.cos(turn) : 0) + (rand() * 2 - 1) * JITTER;
+    py[i] = (used.length > 1 ? ANCHOR_RY * Math.sin(turn) : 0) + (rand() * 2 - 1) * JITTER;
+  });
+  const radius = size.map((z) => footprintRadius(2 ** sizeBucket(z.codeLines)));
+  const index = new Map(systems.map((s, i) => [s.id, i]));
+  const trails = /* @__PURE__ */ new Map();
+  systems.forEach((s, i) => {
+    for (const link of s.connects ?? []) {
+      const j = index.get(link?.to);
+      if (j !== void 0 && j !== i) trails.set(Math.min(i, j) * n + Math.max(i, j), [Math.min(i, j), Math.max(i, j)]);
+    }
+  });
+  const trailCount = new Float64Array(n);
+  for (const [a, b] of trails.values()) {
+    trailCount[a]++;
+    trailCount[b]++;
+  }
+  const clearance = (a, b) => {
+    const c = slot[a] === slot[b] ? CLEARANCE_SAME : CLEARANCE_OTHER;
+    return c.scale * (radius[a] + radius[b]) + c.gap;
+  };
+  const pushX = new Float64Array(n);
+  const pushY = new Float64Array(n);
+  const collide = () => {
+    let worst = 0;
+    pushX.fill(0);
+    pushY.fill(0);
+    for (let a = 0; a < n; a++) {
+      for (let b = a + 1; b < n; b++) {
+        let vx = px[b] - px[a];
+        let vy = py[b] - py[a];
+        const d = Math.sqrt(vx * vx + vy * vy);
+        const need = clearance(a, b);
+        if (d >= need) continue;
+        if (d > 1e-9) {
+          vx /= d;
+          vy /= d;
+        } else {
+          const turn = (a * 7 + b * 13) * 2.399963;
+          vx = Math.cos(turn);
+          vy = Math.sin(turn);
+        }
+        const push = (need - d) * COLLISION;
+        pushX[a] -= vx * push;
+        pushY[a] -= vy * push;
+        pushX[b] += vx * push;
+        pushY[b] += vy * push;
+        worst = Math.max(worst, need - d);
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      px[i] += pushX[i];
+      py[i] += pushY[i];
+    }
+    return worst;
+  };
+  const dx = new Float64Array(n);
+  const dy = new Float64Array(n);
+  const sumX = new Float64Array(used.length);
+  const sumY = new Float64Array(used.length);
+  const count = new Float64Array(used.length);
+  for (let step = 0; step < STEPS; step++) {
+    const alpha = 1 - step / STEPS;
+    dx.fill(0);
+    dy.fill(0);
+    for (const [a, b] of trails.values()) {
+      const vx = px[b] - px[a];
+      const vy = py[b] - py[a];
+      const d = Math.sqrt(vx * vx + vy * vy);
+      if (d < 1e-9) continue;
+      const rest = radius[a] + radius[b] + (slot[a] === slot[b] ? REST_SAME : REST_OTHER);
+      const pull = SPRING * alpha * (d - rest) / d / 2 / Math.min(trailCount[a], trailCount[b]);
+      dx[a] += vx * pull;
+      dy[a] += vy * pull;
+      dx[b] -= vx * pull;
+      dy[b] -= vy * pull;
+    }
+    sumX.fill(0);
+    sumY.fill(0);
+    count.fill(0);
+    for (let i = 0; i < n; i++) {
+      sumX[slot[i]] += px[i];
+      sumY[slot[i]] += py[i];
+      count[slot[i]]++;
+    }
+    for (let i = 0; i < n; i++) {
+      dx[i] += (sumX[slot[i]] / count[slot[i]] - px[i]) * COHESION * alpha - px[i] * PULL * alpha;
+      dy[i] += (sumY[slot[i]] / count[slot[i]] - py[i]) * COHESION * alpha - py[i] * PULL * alpha;
+    }
+    for (let i = 0; i < n; i++) {
+      px[i] += dx[i];
+      py[i] += dy[i];
+    }
+    collide();
+  }
+  for (let pass = 0; pass < SETTLE_PASSES; pass++) if (collide() <= 0.01) break;
+  const peak = Math.max(0, ...size.map((z) => Math.sqrt(z.branchPoints)));
+  return systems.map((s, i) => ({
+    id: s.id,
+    group: rank[i] < declared.size ? s.group : "",
+    x: round1(px[i]),
+    y: round1(py[i]),
+    footprint: footprintRadius(size[i].codeLines),
+    height: peak > 0 ? Math.sqrt(size[i].branchPoints) / peak : 0,
+    files: size[i].files,
+    codeLines: size[i].codeLines,
+    branchPoints: size[i].branchPoints
+  }));
+}
+
 // src/metrics.ts
 import { execFileSync as execFileSync2 } from "child_process";
 var DATA_EXTENSIONS = [
@@ -1450,7 +1609,7 @@ function renderPage(ctx, guide) {
     generated: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
     source: normalizePath(relative4(ctx.root, ctx.guidePath))
   };
-  const json = JSON.stringify({ ...guide, stats, map: { sizes: Object.fromEntries(systemSizes(ctx, guide, files)) } }).replace(/</g, "\\u003c");
+  const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)) } }).replace(/</g, "\\u003c");
   return guide_default.replace(MARKER, () => json);
 }
 function writePage(ctx, guide, out) {
