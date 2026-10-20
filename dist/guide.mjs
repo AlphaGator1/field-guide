@@ -1686,13 +1686,15 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   // is kept in this browser. A map-only page has just the map, the route bar and the panel.
   var trailEl = document.getElementById("trailmap"), views = document.getElementById("views"), view = "map";
   var noMap = { select: function () {}, resize: function () {}, filter: function () {}, routes: 0 };
-  // If the map fails to draw, the page carries on as the List: no switch, no map, and a controller that does nothing.
+  // If the map fails to mount or to draw, the page carries on as the List: no switch, no map, and a controller that
+  // does nothing.
   function withoutMap() {
     trail = noMap;
     view = "list";
     views.hidden = true;
     trailEl.hidden = true;
     map.hidden = false;
+    if (!selected) dos.innerHTML = overview();
   }
   var trail = noMap;
   try {
@@ -1700,21 +1702,26 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   } catch (err) {
     withoutMap();
   }
+  // The map draws when it is first shown (not at mount, when the List may be showing) and redraws on a resize.
+  function drawMap() {
+    try { trail.resize(); } catch (err) { withoutMap(); }
+  }
   function show(v) {
     view = v;
     trailEl.hidden = v !== "map";
     map.hidden = v !== "list";
     views.querySelectorAll("[data-view]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-view") === v)); });
-    if (v === "map") trail.resize();
+    if (v === "map") drawMap();
   }
   views.addEventListener("click", function (e) {
     var b = e.target.closest("[data-view]");
     if (!b) return;
     show(b.getAttribute("data-view"));
-    try { localStorage.setItem("field-guide-view", view); } catch (err) {}
+    // A map that failed to draw is not the reader's choice of the List.
+    if (trail !== noMap) { try { localStorage.setItem("field-guide-view", view); } catch (err) {} }
     if (!selected) dos.innerHTML = overview();
   });
-  window.addEventListener("resize", function () { if (view === "map") trail.resize(); });
+  window.addEventListener("resize", function () { if (view === "map") drawMap(); });
   var saved = null;
   try { saved = localStorage.getItem("field-guide-view"); } catch (err) {}
   var mapOnly = !!(A.map && A.map.mapOnly);
@@ -1724,9 +1731,7 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
     document.getElementById("gloss-sec").hidden = true;
   }
   // A map that failed to mount has already left the List showing.
-  if (trail !== noMap) {
-    try { show(mapOnly ? "map" : saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list"); } catch (err) { withoutMap(); }
-  }
+  if (trail !== noMap) show(mapOnly ? "map" : saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list");
 
   var start = (location.hash || "").replace("#", "");
   select(byId[start] ? start : null, false);
@@ -1796,10 +1801,13 @@ var map_default = `<style>
 .tm .hill.sel .tri, .tm .hill.sel .flat { stroke: var(--tm-ink); stroke-width: 2.5; }
 .tm .hill.here .tri, .tm .hill.here .flat { stroke: var(--tm-route); stroke-width: 3; }
 .tm svg.focus .trail:not(.on) { opacity: 0.08; }
-.tm svg.focus .hill:not(.on):not(.near) { opacity: 0.3; }
+.tm svg.focus .hill:not(.on):not(.near):not(.dim) { opacity: 0.3; }
 .tm svg.routing .trail { opacity: 0.12; }
-.tm svg.routing .hill:not(.onroute) { opacity: 0.3; }
+.tm svg.routing .hill:not(.onroute):not(.dim) { opacity: 0.3; }
+/* A search's unmatched hills stay below the matched hills a focus or a route dims (0.3): the hill in focus, its
+   neighbours and the route's stops at 0.25, the rest at 0.12. */
 .tm .hill.dim { opacity: 0.25; }
+.tm svg.focus .hill.dim:not(.on):not(.near), .tm svg.routing .hill.dim:not(.onroute) { opacity: 0.12; }
 .tm .route { fill: none; stroke: var(--tm-route); stroke-width: 3.4; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .tm .casing { fill: none; stroke: var(--tm-halo); stroke-width: 7; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .tm .badge circle { fill: var(--tm-route); stroke: var(--tm-halo); stroke-width: 2; }
@@ -2241,8 +2249,8 @@ var map_default = `<style>
     }
 
     // Focus lights the hill's trails (solid, with arrows) and dims the rest; a route does its own dimming. A search dims
-    // the hills it does not match.
-    function highlight() {
+    // the hills it does not match. laidOut: the labels were just placed for this state (they do not read the classes).
+    function highlight(laidOut) {
       if (!built) return;
       var id = hovered || keyed || selected;
       svg.classList.toggle("focus", !route && !!id);
@@ -2257,7 +2265,7 @@ var map_default = `<style>
         h.el.classList.toggle("sel", h.id === selected);
         h.el.classList.toggle("dim", !!matched && !matched[h.id]);
       });
-      layout();
+      if (!laidOut) layout();
     }
     function setHover(id) { if (id !== hovered) { hovered = id; highlight(); } }
     function pick(id) { if (hooks.onPick) hooks.onPick(id); else api.select(id); }
@@ -2494,20 +2502,22 @@ var map_default = `<style>
       resize: function () {
         var w = area.clientWidth, h = area.clientHeight;
         if (!w || !h) return;
-        // Same size: nothing to redraw, but state that changed while the map was hidden (a route that ended there) is
-        // shown again.
-        if (built && w === W && h === H) { highlight(); return; }
-        var turn = wantsTurn(w, h), c = view ? { x: view.x + view.w / 2, y: view.y + view.h / 2 } : null;
-        W = w;
-        H = h;
-        if (!built || turn !== turned) {
-          leaveRoute(true);
-          turned = turn;
-          build();
-          fit();
-          highlight();
-        } else if (!moved) fit();
-        else setView(look(c.x, c.y, k));
+        // A first or new size draws or refits the map (which places the labels); the same size needs neither.
+        var redrawn = !built || w !== W || h !== H;
+        if (redrawn) {
+          var turn = wantsTurn(w, h), c = view ? { x: view.x + view.w / 2, y: view.y + view.h / 2 } : null;
+          W = w;
+          H = h;
+          if (!built || turn !== turned) {
+            leaveRoute(true);
+            turned = turn;
+            build();
+            fit();
+          } else if (!moved) fit();
+          else setView(look(c.x, c.y, k));
+        }
+        // Whatever the size, state that changed while the map was hidden (a route that ended there) is shown again.
+        highlight(redrawn);
       },
       filter: function (ids) {
         matched = null;
