@@ -267,7 +267,7 @@
         "Never let a system's exact code lines move a hill in the layout, because only its size bucket may make room around it, and the map must stay put as code changes.",
         "Never put data into the map through innerHTML, because names and sentences come from the guide unescaped.",
         "Never write the page over the guide or the config the render reads, because one mistyped output path would turn the guide into HTML.",
-        "Never let a map failure stop the page's script, because the panel is first filled after the map mounts: on a failure the page falls back to the List, with a map controller that does nothing."
+        "Never let a map failure stop the page's script, because the panel is first filled after the map mounts: on a failure, when the map mounts or when it is first drawn or redrawn, the page falls back to the List, with a map controller that does nothing."
       ]
     },
     {

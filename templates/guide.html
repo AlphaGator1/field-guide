@@ -359,13 +359,15 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   // is kept in this browser. A map-only page has just the map, the route bar and the panel.
   var trailEl = document.getElementById("trailmap"), views = document.getElementById("views"), view = "map";
   var noMap = { select: function () {}, resize: function () {}, filter: function () {}, routes: 0 };
-  // If the map fails to draw, the page carries on as the List: no switch, no map, and a controller that does nothing.
+  // If the map fails to mount or to draw, the page carries on as the List: no switch, no map, and a controller that
+  // does nothing.
   function withoutMap() {
     trail = noMap;
     view = "list";
     views.hidden = true;
     trailEl.hidden = true;
     map.hidden = false;
+    if (!selected) dos.innerHTML = overview();
   }
   var trail = noMap;
   try {
@@ -373,21 +375,26 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   } catch (err) {
     withoutMap();
   }
+  // The map draws when it is first shown (not at mount, when the List may be showing) and redraws on a resize.
+  function drawMap() {
+    try { trail.resize(); } catch (err) { withoutMap(); }
+  }
   function show(v) {
     view = v;
     trailEl.hidden = v !== "map";
     map.hidden = v !== "list";
     views.querySelectorAll("[data-view]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-view") === v)); });
-    if (v === "map") trail.resize();
+    if (v === "map") drawMap();
   }
   views.addEventListener("click", function (e) {
     var b = e.target.closest("[data-view]");
     if (!b) return;
     show(b.getAttribute("data-view"));
-    try { localStorage.setItem("field-guide-view", view); } catch (err) {}
+    // A map that failed to draw is not the reader's choice of the List.
+    if (trail !== noMap) { try { localStorage.setItem("field-guide-view", view); } catch (err) {} }
     if (!selected) dos.innerHTML = overview();
   });
-  window.addEventListener("resize", function () { if (view === "map") trail.resize(); });
+  window.addEventListener("resize", function () { if (view === "map") drawMap(); });
   var saved = null;
   try { saved = localStorage.getItem("field-guide-view"); } catch (err) {}
   var mapOnly = !!(A.map && A.map.mapOnly);
@@ -397,9 +404,7 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
     document.getElementById("gloss-sec").hidden = true;
   }
   // A map that failed to mount has already left the List showing.
-  if (trail !== noMap) {
-    try { show(mapOnly ? "map" : saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list"); } catch (err) { withoutMap(); }
-  }
+  if (trail !== noMap) show(mapOnly ? "map" : saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list");
 
   var start = (location.hash || "").replace("#", "");
   select(byId[start] ? start : null, false);
