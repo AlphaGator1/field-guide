@@ -73,7 +73,7 @@
       "group": "cli",
       "name": "Command line",
       "oneLiner": "Parses the arguments, finds the guide folder and runs the right command.",
-      "summary": "The entry point of dist/guide.mjs. It finds the folder holding guide.config.json (the --dir flag, then the script's own folder, then ./docs/field-guide), resolves the repo root, lists the repo's files with git, and dispatches to a subcommand or the lookup. `guide render --guide <file.json> <out.html>` is the one form that skips all that: it reads a guide-shaped JSON that has no guide.config.json, with the defaults (or the include, exclude and prose of a --config file) and the repo root from --root or the git top level above the JSON.",
+      "summary": "The entry point of dist/guide.mjs. It finds the folder holding guide.config.json (the --dir flag, then the script's own folder, then ./docs/field-guide), resolves the repo root, lists the repo's files with git, and dispatches to a subcommand or the lookup. `guide render --guide <file.json> <out.html>` is the one form that skips all that: it reads a guide-shaped JSON that has no guide.config.json, with the defaults (or the files, include, exclude and prose of a --config file) and the repo root from --root or the git top level above the JSON.",
       "journey": [
         "The vendored script starts and parses flags",
         "It locates guide.config.json and the repo root, unless render --guide names a JSON of its own",
@@ -111,7 +111,7 @@
         },
         {
           "name": "--guide",
-          "what": "With render only, reads that guide-shaped JSON instead of one found through guide.config.json; --root and --config go with it, and an output path is required."
+          "what": "With render only, reads that guide-shaped JSON instead of one found through guide.config.json; --root and --config go with it and are refused without it, and an output path is required."
         }
       ],
       "connects": [
@@ -205,7 +205,7 @@
       "summary": "`guide render` injects the guide JSON, plus counts taken from the repo and a hill for each system (the size of its code, and its place on the trail map), into a neutral page template at a marker, and inlines the trail map module at a second marker. The page opens on the trail map (hills are systems, regions are groups, trails are connections, routes are flows) on wide screens, with the tiles as a List view; picking a hill opens its entry in the panel. `--map-only` sets a flag in that data for a page of just the map, the route bar and the entry panel, and `--guide <file.json> <out.html>` renders a guide-shaped JSON that has no guide.config.json, reading it and writing only the named file. The page uses system fonts and inline script only, so it makes no network request, and it escapes `<` so data cannot close the script element.",
       "journey": [
         "The command counts files, jobs, models and checks and reads the commit",
-        "It measures each system's code: non-blank code lines and branch points, leaving out prose, data, lockfiles, binaries and generated files",
+        "It measures each system's code: non-blank code lines and branch points, leaving out prose, data, translation catalogues, lockfiles, binaries, and generated and vendored files",
         "It lays the systems out as hills: first from groups and connections alone, then pushed apart to make room by coarse size bucket, so the map stays put as code changes",
         "It replaces the template's markers with the JSON and the map module",
         "A reader picks a hill on the map (or a tile in the List view) and its entry opens in the panel"
@@ -221,7 +221,7 @@
       "keyFiles": [
         {
           "path": "src/render.ts",
-          "what": "Collects the stats and injects the JSON at the marker."
+          "what": "Collects the stats, injects the JSON at one marker and inlines the map module at a second, and refuses an output path that is the guide or the config."
         },
         {
           "path": "src/metrics.ts",
@@ -265,7 +265,9 @@
         "Never load fonts or scripts from a CDN in the template, because the page must work offline and publish anywhere.",
         "Always keep the template's glob function identical to the CLI's, because the page's path search must agree with the lookup.",
         "Never let a system's exact code lines move a hill in the layout, because only its size bucket may make room around it, and the map must stay put as code changes.",
-        "Never put data into the map through innerHTML, because names and sentences come from the guide unescaped."
+        "Never put data into the map through innerHTML, because names and sentences come from the guide unescaped.",
+        "Never write the page over the guide or the config the render reads, because one mistyped output path would turn the guide into HTML.",
+        "Never let a map failure stop the page's script, because the panel is first filled after the map mounts: on a failure the page falls back to the List, with a map controller that does nothing."
       ]
     },
     {

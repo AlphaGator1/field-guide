@@ -25,6 +25,11 @@ export const DEFAULT_CONFIG: Config = {
 /** Windows and macOS file systems ignore case by default, so path comparisons must too. */
 export const CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin"
 const fold = (p: string) => (CASE_INSENSITIVE ? p.toLowerCase() : p)
+/** Whether two paths name the same file, as the disk compares them (case folded on Windows and macOS). */
+export const samePath = (a: string, b: string) => fold(resolve(a)) === fold(resolve(b))
+
+/** What to change when git cannot list the files, for a guide with a guide.config.json. */
+const WALK_HINT = `Set "files": "walk" in ${CONFIG_FILE} to walk the folder instead.`
 
 export type Ctx = {
   /** Absolute folder holding guide.config.json. */
@@ -32,6 +37,10 @@ export type Ctx = {
   config: Config
   /** Absolute path of guide.json. */
   guidePath: string
+  /** Absolute path of the config file in use (guide.config.json, or render --guide's --config file), if there is one. */
+  configPath?: string
+  /** What to tell the user when git cannot list the files: where `"files": "walk"` goes. */
+  walkHint: string
   /** Absolute repo root; every path in the guide is relative to it. */
   root: string
   /** The guide folder, repo-relative (its own files are never on the map). */
@@ -93,10 +102,11 @@ export function loadContext(dir: string): Ctx {
   const dirRel = repoRelative(root, dir)
   if (!dirRel) throw new UsageError(`The guide folder (${dir}) must be a subfolder of the repo root (${root}): its own files are kept off the map by folder.`)
   const guidePath = resolve(dir, config.guide)
-  const own = new Set([repoRelative(root, guidePath), repoRelative(root, join(dir, CONFIG_FILE))].filter((p): p is string => !!p).map(fold))
+  const configPath = join(dir, CONFIG_FILE)
+  const own = new Set([repoRelative(root, guidePath), repoRelative(root, configPath)].filter((p): p is string => !!p).map(fold))
   const prefix = fold(`${dirRel}/`)
   const isGuideFile = (p: string) => fold(p).startsWith(prefix) || own.has(fold(p))
-  return { dir, config, guidePath, root, dirRel, isGuideFile }
+  return { dir, config, guidePath, configPath, walkHint: WALK_HINT, root, dirRel, isGuideFile }
 }
 
 /**
@@ -116,7 +126,8 @@ export function outsideContext(guideFile: string, rootArg?: string, configFile?:
   if (dirRel === ".." || dirRel.startsWith("../") || isAbsolute(dirRel)) {
     throw new UsageError(`The guide's folder (${dir}) must be inside the repo root (${root}), which is where the paths in the guide start. Pass --root <folder> to change the root.`)
   }
-  const raw = configFile ? readJson<Partial<Config>>(resolve(configFile)) : {}
+  const configPath = configFile ? resolve(configFile) : undefined
+  const raw = configPath ? readJson<Partial<Config>>(configPath) : {}
   const config: Config = {
     ...DEFAULT_CONFIG,
     guide: basename(guidePath),
@@ -126,10 +137,12 @@ export function outsideContext(guideFile: string, rootArg?: string, configFile?:
     exclude: raw.exclude ?? DEFAULT_CONFIG.exclude,
     prose: raw.prose,
   }
-  const own = new Set([repoRelative(root, guidePath), configFile && repoRelative(root, resolve(configFile))].filter((p): p is string => !!p).map(fold))
+  const own = new Set([repoRelative(root, guidePath), configPath && repoRelative(root, configPath)].filter((p): p is string => !!p).map(fold))
   const prefix = dirRel ? fold(`${dirRel}/`) : undefined
   const isGuideFile = (p: string) => (prefix !== undefined && fold(p).startsWith(prefix)) || own.has(fold(p))
-  return { dir, config, guidePath, root, dirRel, isGuideFile }
+  // There is no guide.config.json to edit here: the walk is asked for through --config.
+  const walkHint = `Pass --config <file> holding {"files": "walk"} to walk the folder instead.`
+  return { dir, config, guidePath, configPath, walkHint, root, dirRel, isGuideFile }
 }
 
 export function readJson<T>(path: string): T {
@@ -152,12 +165,12 @@ export function loadGuide(ctx: Ctx): Guide {
 
 const WALK_SKIP = new Set([".git", "node_modules"])
 
-function gitList(root: string, args: string[]): string[] {
+function gitList(root: string, args: string[], walkHint = WALK_HINT): string[] {
   let out: string
   try {
     out = execFileSync("git", ["ls-files", "-z", ...args], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"] })
   } catch {
-    throw new UsageError(`git ls-files failed in ${root}. Is it a git repository? Set "files": "walk" in ${CONFIG_FILE} to walk the folder instead.`)
+    throw new UsageError(`git ls-files failed in ${root}. Is it a git repository? ${walkHint}`)
   }
   return out.split("\0").filter(Boolean).map(normalizePath)
 }
@@ -167,9 +180,10 @@ function gitList(root: string, args: string[]): string[] {
  * plus untracked ones that .gitignore does not exclude, so a new file is on the
  * check's radar before it is committed; deleted-but-unstaged files drop out.
  * Paths keep their exact case: they are what "exists" is checked against.
+ * `walkHint` (a context's) says how to ask for a walk when git fails.
  */
-export function listRepoFiles(root: string, mode: Config["files"]): string[] {
-  const paths = mode === "walk" ? walk(root, "") : gitList(root, ["--cached", "--others", "--exclude-standard"])
+export function listRepoFiles(root: string, mode: Config["files"], walkHint?: string): string[] {
+  const paths = mode === "walk" ? walk(root, "") : gitList(root, ["--cached", "--others", "--exclude-standard"], walkHint)
   return [...new Set(paths)].filter((p) => isFile(join(root, p))).sort()
 }
 

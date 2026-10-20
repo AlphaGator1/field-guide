@@ -60,6 +60,7 @@
 .tm svg.focus .hill:not(.on):not(.near) { opacity: 0.3; }
 .tm svg.routing .trail { opacity: 0.12; }
 .tm svg.routing .hill:not(.onroute) { opacity: 0.3; }
+.tm .hill.dim { opacity: 0.25; }
 .tm .route { fill: none; stroke: var(--tm-route); stroke-width: 3.4; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .tm .casing { fill: none; stroke: var(--tm-halo); stroke-width: 7; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .tm .badge circle { fill: var(--tm-route); stroke: var(--tm-halo); stroke-width: 2; }
@@ -72,11 +73,14 @@
 </style>
 <script>
 /* TrailMap.mount(container, data, hooks) draws the page data (a guide plus map.hills) into an empty container and
-   returns { select: function (id, centre), resize: function () }. It touches the page only through the container
-   and the hooks: hooks.onPick(id) fires when a reader picks a hill (null: the empty map), and hooks.onPick(id, true)
-   when a route arrives at a stop; the page then selects that system and calls select(id), which focuses the hill
-   (and with centre, pans to it) without calling back. Call resize() when the container is shown or changes size:
-   nothing is drawn while it has no size. Every string from the data goes in through textContent, never as markup. */
+   returns { select: function (id, centre), resize: function (), filter: function (ids), routes: n }. It touches the
+   page only through the container and the hooks: hooks.onPick(id) fires when a reader picks a hill (null: the empty
+   map), and hooks.onPick(id, true) when a route arrives at a stop; the page then selects that system and calls
+   select(id), which focuses the hill (and with centre, pans to it) without calling back. Call resize() when the
+   container is shown or changes size: nothing is drawn while it has no size. filter(ids) dims every hill whose id is
+   not in the array (a search's matches), and filter(null) undims them all. routes is the number of flows drawn as
+   routes (those whose every stop is on the map). Every string from the data goes in through textContent, never as
+   markup. */
 (function () {
   var NS = "http://www.w3.org/2000/svg";
   var RINGS = 9; // the tallest hill gets about this many contour rings
@@ -273,7 +277,7 @@
     area.tabIndex = -1;
     if (!hills.length) {
       box("p", "tm-empty", area, "This guide has no systems to map.");
-      return { select: function () {}, resize: function () {} };
+      return { select: function () {}, resize: function () {}, filter: function () {}, routes: 0 };
     }
     var svg = el("svg", { role: "group", "aria-label": "Trail map: hills are systems, trails are connections" }, area);
     var hint = box("div", "tm-hint", area, "Drag to pan · scroll or pinch to zoom · pick a hill");
@@ -307,7 +311,7 @@
     });
 
     var W = 0, H = 0, k = 1, view = null, fitK = 1, moved = false, built = false, turned = false;
-    var scalables = [], selected = null, hovered = null, keyed = null, route = null;
+    var scalables = [], selected = null, hovered = null, keyed = null, route = null, matched = null;
     // The layout's own extent, before any turn: it decides whether the map is turned to fit the area's shape.
     var lay = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
     hills.forEach(function (h) {
@@ -472,12 +476,13 @@
         taken.push(pick.b);
       });
     }
-    // Labels, greedily: the hill in focus first (always shown), then hills on the route, then by code lines. Each tries
-    // below, above, right and left of its summit, and hides when none is clear, as a map drops minor names.
+    // Labels, greedily: the hill in focus first (always shown), then hills on the route, then a search's matches, then by
+    // code lines. Each tries below, above, right and left of its summit, and hides when none is clear, as a map drops
+    // minor names.
     function placeLabels(taken) {
       var focus = hovered || keyed || (route ? route.stops[route.at].hill.id : selected), onRoute = Object.create(null);
       if (route) route.stops.forEach(function (st) { onRoute[st.hill.id] = 1; });
-      function rankOf(h) { return h.id === focus ? 4e9 : (onRoute[h.id] ? 2e9 : 0) + h.lines; }
+      function rankOf(h) { return h.id === focus ? 4e9 : (onRoute[h.id] ? 2e9 : 0) + (matched && matched[h.id] ? 1e9 : 0) + h.lines; }
       hills.slice().sort(function (a, b) { return rankOf(b) - rankOf(a) || a.i - b.i; }).forEach(function (h) {
         var bb = h.bb, mid = -(bb.y + bb.height / 2), side = bb.width / 2 + 12;
         var tries = [[0, 0], [0, -10 - (bb.y + bb.height)], [side, mid], [-side, mid]], pick = null, b = null;
@@ -496,7 +501,8 @@
       });
     }
 
-    // Focus lights the hill's trails (solid, with arrows) and dims the rest; a route does its own dimming.
+    // Focus lights the hill's trails (solid, with arrows) and dims the rest; a route does its own dimming. A search dims
+    // the hills it does not match.
     function highlight() {
       if (!built) return;
       var id = hovered || keyed || selected;
@@ -510,6 +516,7 @@
         h.el.classList.toggle("on", h.id === id);
         h.el.classList.toggle("near", !!id && h.id !== id && h.links.some(function (t) { return t.a.id === id || t.b.id === id; }));
         h.el.classList.toggle("sel", h.id === selected);
+        h.el.classList.toggle("dim", !!matched && !matched[h.id]);
       });
       layout();
     }
@@ -679,6 +686,7 @@
       cancelAnimationFrame(R.raf);
       if (!area.clientWidth) { leaveRoute(true); return; } // the page hid the map
       R.at = n;
+      R.t = 0;
       R.walker.x = st.hill.x;
       R.walker.y = st.hill.y;
       place(R.walker);
@@ -694,13 +702,15 @@
       highlight();
       if (R.playing) R.timer = setTimeout(function () { walk(n); }, Math.min(5200, 1500 + 24 * st.text.length));
     }
+    // Walks leg n from stop n to stop n + 1, starting R.t of the way along (in time): 0 from the stop, more on a resume.
     function walk(n) {
       var R = route, g = R.legs[n], still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       if (!g || still) { arrive(n + 1); return; }
-      var dur = clamp(g.len / k / WALK, 500, 2000), t0 = 0;
+      var dur = clamp(g.len / k / WALK, 500, 2000), from = R.t || 0, t0 = -1;
       function frame(now) {
-        if (!t0) t0 = now;
+        if (t0 < 0) t0 = now - from * dur;
         var t = Math.min(1, (now - t0) / dur), p = at(g.a, g.c, g.b, t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t));
+        R.t = t;
         R.walker.x = p.x;
         R.walker.y = p.y;
         place(R.walker);
@@ -715,14 +725,16 @@
       cPlay.setAttribute("aria-label", done ? "Play again" : R.playing ? "Pause" : "Play");
       cPlay.title = cPlay.getAttribute("aria-label");
     }
+    // Pause only stops the clock: the marker stays where it is, and play walks on from there.
     function togglePlay() {
       var R = route;
       if (!R) return;
       if (R.at === R.stops.length - 1 && !R.playing) { R.playing = true; arrive(0); return; }
       R.playing = !R.playing;
+      clearTimeout(R.timer);
+      cancelAnimationFrame(R.raf);
       playLabel();
       if (R.playing) walk(R.at);
-      else arrive(R.at);
     }
     function step(d) {
       var R = route;
@@ -742,7 +754,10 @@
       },
       resize: function () {
         var w = area.clientWidth, h = area.clientHeight;
-        if (!w || !h || (built && w === W && h === H)) return;
+        if (!w || !h) return;
+        // Same size: nothing to redraw, but state that changed while the map was hidden (a route that ended there) is
+        // shown again.
+        if (built && w === W && h === H) { highlight(); return; }
         var turn = wantsTurn(w, h), c = view ? { x: view.x + view.w / 2, y: view.y + view.h / 2 } : null;
         W = w;
         H = h;
@@ -755,6 +770,15 @@
         } else if (!moved) fit();
         else setView(look(c.x, c.y, k));
       },
+      filter: function (ids) {
+        matched = null;
+        if (Array.isArray(ids)) {
+          matched = Object.create(null);
+          ids.forEach(function (id) { matched[id] = 1; });
+        }
+        highlight();
+      },
+      routes: flows.length,
     };
     api.resize();
     return api;

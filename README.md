@@ -53,20 +53,23 @@ pick a hill and its entry opens beside the map, while its trails light up.*
 Sizes are counted from the code each time you render, never typed by hand. The
 footprint's radius grows with the square root of a system's lines of code, so
 its area roughly follows the code. Lines are the non-blank lines in code files,
-which leaves out prose, data and config files, lockfiles, binaries, and
-generated and minified files. Height grows with the square root of its branch
+which leaves out prose, data and config files, translation catalogues,
+lockfiles, binaries, minified files, and files git marks `linguist-generated`
+or `linguist-vendored`. Height grows with the square root of its branch
 points: a count of `if`, `elif`, `for`, `foreach`, `while`, `case`, `catch`, `except`,
 `when`, `match`, `&&`, `||` and a spaced `?`. It is a count, not a parser, so it also
 matches inside strings and comments; that is fine for comparing systems within
-one repo.
+one repo. Render reads every code file the systems own, so on a very large repo
+(tens of thousands of files) it can take several seconds.
 
 The layout comes from the guide's structure (groups and connections), and from
 the code's size only in coarse steps, one per doubling of lines. A commit that
-leaves the groups, the connections and the size steps alone moves no hill, and
-a system that crosses into the next step moves the hills around it only a
-little, so a reader can learn the map. The map is the default view when the
-window is at least 860px wide; the list of tiles is the default below that, and
-your choice is remembered in the browser.
+leaves the systems, the groups, the connections and the size steps alone moves
+no hill, and a system that crosses into the next step moves the hills around
+it only a little, so a reader can learn the map. Adding or removing a system,
+or changing a group or a connection, can move hills further. The map is the
+default view when the window is at least 860px wide; the list of tiles is the
+default below that, and your choice is remembered in the browser.
 
 Two flags change what `render` writes:
 
@@ -77,12 +80,16 @@ node <field-guide>/dist/guide.mjs render --guide docs/architecture.json --map-on
 
 `--guide <file.json> [--root <folder>] [--config <file>] <out.html>` draws a
 guide that other tooling maintains and that has no `guide.config.json`. It reads
-the JSON and writes only the page you name, so an output path is required. The
-repo root defaults to the git top level of the JSON's folder; `--root` names
-another. `--config` supplies a `guide.config.json`-shaped file (`include`,
-`exclude`, `prose`) that says which files count; without it, every file git
-lists counts, except those in the JSON's own folder. `--map-only` works with
-`--guide` too.
+the JSON and writes only the page you name, so an output path is required, and
+it may not be the guide or the config file. The repo root defaults to the git
+top level of the JSON's folder; `--root` names another. `--config` supplies a
+`guide.config.json`-shaped file whose `files`, `include`, `exclude` and `prose`
+say which files count (`"files": "walk"` walks a folder that is not a git
+repository); without it, every file git lists counts, except those in the
+JSON's own folder. `--root` and `--config` go with `--guide` only, and
+`--map-only` works with `--guide` too. Render does not validate the guide, and
+it warns when every system measures no code, which usually means the paths
+start somewhere else: pass `--root`.
 
 ## Where it comes from
 

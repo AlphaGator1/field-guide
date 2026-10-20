@@ -24,7 +24,8 @@ In ParaFlow these files live in `docs/field-guide/`, beside the vendored CLI
 `node docs/field-guide/guide.mjs check` passed 33 of 33 assertions when the
 build ran. ParaFlow's own commit `043aaeb` names the workflow file `guide.yml`,
 not `field-guide.yml`, so with these files in it, 2 of the 33 fail there: the
-job's reference to the workflow, and the workflow no system claims.
+job's reference to the workflow, and the assertion that every workflow is some
+system's job: a system owns `guide.yml`, but no system lists it as a job.
 
 ## How it was made
 

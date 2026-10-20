@@ -10,15 +10,21 @@ import { matchesAny } from "./lookup"
 import { readText, type Ctx } from "./repo"
 import type { Config, Guide, Size } from "./types"
 
-/** Extensions of data and config files: they make footprints without adding logic. */
+/** Extensions of data, config, translation and tool-written project files: they make footprints without adding logic. */
 export const DATA_EXTENSIONS: readonly string[] = [
   "json", "jsonc", "json5", "yaml", "yml", "toml", "ini", "cfg", "conf", "env", "xml", "plist",
   "csv", "tsv", "svg", "lock", "map", "snap",
+  // translation catalogues
+  "po", "pot", "resx", "xlf", "xliff", "strings", "stringsdict", "xcstrings", "arb",
+  // UI and project files that tools write as XML
+  "storyboard", "xib", "pbxproj",
+  // data
+  "ipynb", "jsonl", "ndjson", "geojson", "properties",
 ]
 /** Lockfiles whose extension says nothing. */
-const DATA_BASENAMES: readonly string[] = ["go.sum", "Package.resolved"]
+const DATA_BASENAMES: readonly string[] = ["go.sum", "go.work.sum", "Package.resolved", "gradle.lockfile"]
 
-/** Whether a path can be code: not prose, not data or config, not a lockfile. Binary, minified and generated files are told apart later, by content and by git. */
+/** Whether a path can be code: not prose, not data or config, not a lockfile. Binary, minified, generated and vendored files are told apart later, by content and by git. */
 export function isCodePath(path: string, prose: string[]): boolean {
   if (matchesAny(prose, path)) return false
   const name = path.slice(path.lastIndexOf("/") + 1)
@@ -50,25 +56,25 @@ export function countCode(text: string): { codeLines: number; branchPoints: numb
 }
 
 /**
- * The paths git marks `linguist-generated` (set, or =true). Empty in walk mode,
- * where there is no git to ask, and when git fails: a size that is too big is
- * better than no map.
+ * The paths git marks `linguist-generated` or `linguist-vendored` (set, or
+ * =true): code nobody here writes. Empty in walk mode, where there is no git to
+ * ask, and when git fails: a size that is too big is better than no map.
  */
-export function generatedPaths(root: string, paths: string[], mode: Config["files"]): Set<string> {
-  const generated = new Set<string>()
-  if (mode === "walk" || !paths.length) return generated
+export function generatedOrVendored(root: string, paths: string[], mode: Config["files"]): Set<string> {
+  const marked = new Set<string>()
+  if (mode === "walk" || !paths.length) return marked
   let out: string
   try {
-    out = execFileSync("git", ["check-attr", "-z", "--stdin", "linguist-generated"], {
+    out = execFileSync("git", ["check-attr", "-z", "--stdin", "linguist-generated", "linguist-vendored"], {
       cwd: root, input: `${paths.join("\0")}\0`, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["pipe", "pipe", "ignore"],
     })
   } catch {
-    return generated
+    return marked
   }
-  // With -z every record is `path NUL attribute NUL value NUL`.
+  // With -z every record is `path NUL attribute NUL value NUL`, one record per path and attribute.
   const parts = out.split("\0")
-  for (let i = 0; i + 2 < parts.length; i += 3) if (parts[i + 2] === "set" || parts[i + 2] === "true") generated.add(parts[i])
-  return generated
+  for (let i = 0; i + 2 < parts.length; i += 3) if (parts[i + 2] === "set" || parts[i + 2] === "true") marked.add(parts[i])
+  return marked
 }
 
 /**
@@ -83,10 +89,10 @@ export function systemSizes(ctx: Ctx, guide: Guide, files: string[]): Map<string
     .filter((p) => isCodePath(p, prose))
     .map((path) => ({ path, owners: guide.systems.filter((s) => matchesAny(s.owns ?? [], path)) }))
     .filter((f) => f.owners.length > 0)
-  const generated = generatedPaths(ctx.root, owned.map((f) => f.path), ctx.config.files)
+  const leftOut = generatedOrVendored(ctx.root, owned.map((f) => f.path), ctx.config.files)
   const sums = new Map<string, Size>(guide.systems.map((s) => [s.id, { files: 0, codeLines: 0, branchPoints: 0 }]))
   for (const { path, owners } of owned) {
-    if (generated.has(path)) continue
+    if (leftOut.has(path)) continue
     const text = readText(ctx.root, path)
     if (text === undefined) continue
     const code = countCode(text)

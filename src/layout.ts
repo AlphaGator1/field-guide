@@ -2,13 +2,14 @@
  * Where each system's hill stands on the trail map, and how big it is drawn.
  * The layout has two phases. Phase 1 places the systems from the guide's
  * structure alone (which group a system is in, what it connects to) and looks
- * at no size. Phase 2 starts from those places and only makes room: it pushes
- * hills apart by their size bucket (a coarse log-scale step of code lines,
- * never the exact size), so the map stays put as code changes: an ordinary
- * commit moves nothing, and a system that crosses a bucket boundary moves the
- * hills around it only a little. Pure and deterministic: the same guide and
- * sizes give the same hills on every run, and adding a system does not reseed
- * the others (each one's start comes from its own id).
+ * at no size. Phase 2 starts from those places, scales the whole layout by the
+ * hills' root-mean-square bucket radius, and pushes hills apart by their size
+ * bucket (a coarse log-scale step of code lines, never the exact size), so the
+ * map stays put as code changes: an ordinary commit moves nothing, and a
+ * system that crosses a bucket boundary moves the hills around it only a
+ * little. Pure and deterministic: the same guide and sizes give the same hills
+ * on every run, and adding a system does not reseed the others (each one's
+ * start comes from its own id). A system with no id still gets a hill.
  */
 import type { Guide, Hill, Size } from "./types"
 
@@ -35,7 +36,7 @@ const REST_SAME = 36 // a trail's rest length beyond the two collision radii, wi
 const REST_OTHER = 150 // ...and between groups
 const CLEARANCE_SAME = { scale: 0.8, gap: 30 } // the least centre distance, as scale * (ra + rb) + gap...
 const CLEARANCE_OTHER = { scale: 1.15, gap: 120 } // ...within a group and between groups
-const SCALE_MIN = 0.5 // phase 1 places hills as if they were PHASE1_RADIUS big; the layout is scaled by their average radius over that, but never below this
+const SCALE_MIN = 0.5 // phase 1 places hills as if they were PHASE1_RADIUS big; the layout is scaled by their root-mean-square bucket radius over that, but never below this
 const STEPS2 = 300 // phase 2 collision steps
 const SETTLE_PASSES = 2000 // at most this many extra collision-only passes after each phase; they stop once the worst overlap is under 0.01
 
@@ -83,12 +84,14 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
   systems.forEach((s, i) => {
     // The first group sits at the left of the ellipse and the rest follow clockwise on screen.
     const turn = (-0.5 + slot[i] / used.length) * 2 * Math.PI
-    const rand = mulberry32(fnv1a(s.id))
+    // render does not validate the guide: a missing id hashes as "" instead of throwing.
+    const rand = mulberry32(fnv1a(String(s.id ?? "")))
     px[i] = (used.length > 1 ? ANCHOR_RX * Math.cos(turn) : 0) + (rand() * 2 - 1) * JITTER
     py[i] = (used.length > 1 ? ANCHOR_RY * Math.sin(turn) : 0) + (rand() * 2 - 1) * JITTER
   })
 
-  const index = new Map(systems.map((s, i) => [s.id, i]))
+  // Only real ids: a connection with no `to` must not land on a system with no id.
+  const index = new Map(systems.flatMap((s, i) => (typeof s.id === "string" ? [[s.id, i] as const] : [])))
   const trails = new Map<number, [number, number]>()
   systems.forEach((s, i) => {
     for (const link of s.connects ?? []) {
@@ -198,9 +201,10 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
   }
   settle(same)
 
-  // Phase 2: room by size. The collision radius comes from the size bucket, never the exact size. If the hills are
-  // bigger than phase 1's, the whole layout is first scaled up to match (by a bucket-based average, so one system
-  // crossing a bucket scales it only a little), and the hills are then pushed apart from there.
+  // Phase 2: room by size. The collision radius comes from the size bucket, never the exact size. The whole layout is
+  // first scaled by the hills' root-mean-square bucket radius over phase 1's (up when they are bigger, down to half at
+  // most when they are smaller; one system crossing a bucket changes the scale only a little), and the hills are then
+  // pushed apart from there.
   const radius = Float64Array.from(size.map((z) => footprintRadius(2 ** sizeBucket(z.codeLines))))
   const scale = Math.max(SCALE_MIN, Math.sqrt(radius.reduce((sum, r) => sum + r * r, 0) / Math.max(1, n)) / PHASE1_RADIUS)
   for (let i = 0; i < n; i++) {

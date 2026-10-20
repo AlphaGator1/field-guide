@@ -251,16 +251,19 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
         return '<li><div><button type="button" data-go="' + esc(s2.system) + '">' + esc(s ? s.name : s2.system) + "</button><p>" + esc(s2.text) + "</p></div></li>";
       }).join("") + "</ol></div>";
     }).join("");
-    return (view === "map" ? LEGEND : "") + '<div class="d-eyebrow" style="--lane:var(--accent)">Start here</div><h2>The big picture</h2>' +
+    return (view === "map" ? legend() : "") + '<div class="d-eyebrow" style="--lane:var(--accent)">Start here</div><h2>The big picture</h2>' +
       (A.overview ? '<p class="d-summary">' + esc(A.overview) + "</p>" : "") + '<div class="flows">' + flows + "</div>" +
       '<p class="empty-note">' + (view === "map" ? "Pick any hill to open that system and light its trails." : "Pick any tile to open that system. The tiles it connects to light up.") + "</p>";
   }
-  var LEGEND = '<div class="legend"><h2>How to read the map</h2>' +
-    "<p><b>Hills are systems.</b> A hill's footprint grows with the lines of code the system owns, and its height (its contour rings) with the branch points in that code.</p>" +
-    '<p class="rule">Lines of code are non-blank lines in code files, leaving out prose, data, config, lockfiles and generated files. Branch points count if, elif, for, foreach, while, case, catch, except, when, match, &amp;&amp;, || and a spaced ?, comments and strings included.</p>' +
-    "<p><b>Regions are groups.</b> A group's hills share one landmass in its colour.</p>" +
-    "<p><b>Trails are connections.</b> Point at or pick a hill to light its trails, with arrows for the way each one runs; point at a trail to read why it exists.</p>" +
-    "<p><b>Routes are flows.</b> Pick a route above the map and a marker walks it, stop by stop.</p></div>";
+  // The routes sentence only when the map draws a route (a flow whose every stop is on the map).
+  function legend() {
+    return '<div class="legend"><h2>How to read the map</h2>' +
+      "<p><b>Hills are systems.</b> A hill's footprint grows with the lines of code the system owns, and its height (its contour rings) with the branch points in that code.</p>" +
+      '<p class="rule">Lines of code are non-blank lines in code files, leaving out prose, data, config, translation catalogues, lockfiles, and generated and vendored files. Branch points count if, elif, for, foreach, while, case, catch, except, when, match, &amp;&amp;, || and a spaced ?, comments and strings included.</p>' +
+      "<p><b>Regions are groups.</b> A group's hills share one landmass in its colour.</p>" +
+      "<p><b>Trails are connections.</b> Point at or pick a hill to light its trails, with arrows for the way each one runs; point at a trail to read why it exists.</p>" +
+      (trail.routes ? "<p><b>Routes are flows.</b> Pick a route above the map and a marker walks it, stop by stop.</p>" : "") + "</div>";
+  }
 
   function dossier(s) {
     var g = groupById[s.group] || { id: s.group, name: s.group };
@@ -321,9 +324,12 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
     var hits = [];
     A.systems.forEach(function (s) {
       var m = !v || haystack(s).indexOf(v) >= 0 || (/[\/.]/.test(v) && s.owns.some(function (o) { return globRe(o.toLowerCase()).test(v); }));
-      document.getElementById("tile-" + s.id).classList.toggle("dim", !m);
+      var tile = document.getElementById("tile-" + s.id); // none for a system in a group the guide does not declare
+      if (tile) tile.classList.toggle("dim", !m);
       if (m && v) hits.push(s);
     });
+    // The map dims the hills that do not match, as the tiles do.
+    trail.filter(v ? hits.map(function (s) { return s.id; }) : null);
     qs.textContent = !v ? "Pick a system to see how it works." : hits.length ? plural(hits.length, "system matches", "systems match") + (hits.length === 1 ? ": " + hits[0].name : "") : "No system matches. Try a file path from the repo root.";
     if (hits.length === 1) select(hits[0].id, false, true);
   });
@@ -352,7 +358,21 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   // The trail map and the tiles are two views of one selection. Map is the default on wide screens; a reader's choice
   // is kept in this browser. A map-only page has just the map, the route bar and the panel.
   var trailEl = document.getElementById("trailmap"), views = document.getElementById("views"), view = "map";
-  var trail = TrailMap.mount(trailEl, A, { onPick: function (id, quiet) { select(id, !quiet); } });
+  var noMap = { select: function () {}, resize: function () {}, filter: function () {}, routes: 0 };
+  // If the map fails to draw, the page carries on as the List: no switch, no map, and a controller that does nothing.
+  function withoutMap() {
+    trail = noMap;
+    view = "list";
+    views.hidden = true;
+    trailEl.hidden = true;
+    map.hidden = false;
+  }
+  var trail = noMap;
+  try {
+    trail = TrailMap.mount(trailEl, A, { onPick: function (id, quiet) { select(id, !quiet); } });
+  } catch (err) {
+    withoutMap();
+  }
   function show(v) {
     view = v;
     trailEl.hidden = v !== "map";
@@ -370,12 +390,16 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   window.addEventListener("resize", function () { if (view === "map") trail.resize(); });
   var saved = null;
   try { saved = localStorage.getItem("field-guide-view"); } catch (err) {}
-  if (A.map && A.map.mapOnly) {
+  var mapOnly = !!(A.map && A.map.mapOnly);
+  if (mapOnly) {
     views.hidden = true;
     document.getElementById("jobs-sec").hidden = true;
     document.getElementById("gloss-sec").hidden = true;
-    show("map");
-  } else show(saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list");
+  }
+  // A map that failed to mount has already left the List showing.
+  if (trail !== noMap) {
+    try { show(mapOnly ? "map" : saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list"); } catch (err) { withoutMap(); }
+  }
 
   var start = (location.hash || "").replace("#", "");
   select(byId[start] ? start : null, false);

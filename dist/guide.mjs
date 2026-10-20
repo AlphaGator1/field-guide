@@ -180,6 +180,8 @@ var DEFAULT_CONFIG = {
 };
 var CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin";
 var fold = (p) => CASE_INSENSITIVE ? p.toLowerCase() : p;
+var samePath = (a, b) => fold(resolve(a)) === fold(resolve(b));
+var WALK_HINT = `Set "files": "walk" in ${CONFIG_FILE} to walk the folder instead.`;
 var UsageError = class extends Error {
 };
 function findGuideDir(argDir, scriptDir) {
@@ -221,10 +223,11 @@ function loadContext(dir) {
   const dirRel = repoRelative(root, dir);
   if (!dirRel) throw new UsageError(`The guide folder (${dir}) must be a subfolder of the repo root (${root}): its own files are kept off the map by folder.`);
   const guidePath = resolve(dir, config.guide);
-  const own = new Set([repoRelative(root, guidePath), repoRelative(root, join(dir, CONFIG_FILE))].filter((p) => !!p).map(fold));
+  const configPath = join(dir, CONFIG_FILE);
+  const own = new Set([repoRelative(root, guidePath), repoRelative(root, configPath)].filter((p) => !!p).map(fold));
   const prefix = fold(`${dirRel}/`);
   const isGuideFile = (p) => fold(p).startsWith(prefix) || own.has(fold(p));
-  return { dir, config, guidePath, root, dirRel, isGuideFile };
+  return { dir, config, guidePath, configPath, walkHint: WALK_HINT, root, dirRel, isGuideFile };
 }
 function outsideContext(guideFile, rootArg, configFile) {
   const guidePath = resolve(guideFile);
@@ -235,7 +238,8 @@ function outsideContext(guideFile, rootArg, configFile) {
   if (dirRel === ".." || dirRel.startsWith("../") || isAbsolute(dirRel)) {
     throw new UsageError(`The guide's folder (${dir}) must be inside the repo root (${root}), which is where the paths in the guide start. Pass --root <folder> to change the root.`);
   }
-  const raw = configFile ? readJson(resolve(configFile)) : {};
+  const configPath = configFile ? resolve(configFile) : void 0;
+  const raw = configPath ? readJson(configPath) : {};
   const config = {
     ...DEFAULT_CONFIG,
     guide: basename(guidePath),
@@ -245,10 +249,11 @@ function outsideContext(guideFile, rootArg, configFile) {
     exclude: raw.exclude ?? DEFAULT_CONFIG.exclude,
     prose: raw.prose
   };
-  const own = new Set([repoRelative(root, guidePath), configFile && repoRelative(root, resolve(configFile))].filter((p) => !!p).map(fold));
+  const own = new Set([repoRelative(root, guidePath), configPath && repoRelative(root, configPath)].filter((p) => !!p).map(fold));
   const prefix = dirRel ? fold(`${dirRel}/`) : void 0;
   const isGuideFile = (p) => prefix !== void 0 && fold(p).startsWith(prefix) || own.has(fold(p));
-  return { dir, config, guidePath, root, dirRel, isGuideFile };
+  const walkHint = `Pass --config <file> holding {"files": "walk"} to walk the folder instead.`;
+  return { dir, config, guidePath, configPath, walkHint, root, dirRel, isGuideFile };
 }
 function readJson(path) {
   let text;
@@ -267,17 +272,17 @@ function loadGuide(ctx) {
   return readJson(ctx.guidePath);
 }
 var WALK_SKIP = /* @__PURE__ */ new Set([".git", "node_modules"]);
-function gitList(root, args) {
+function gitList(root, args, walkHint = WALK_HINT) {
   let out;
   try {
     out = execFileSync("git", ["ls-files", "-z", ...args], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"] });
   } catch {
-    throw new UsageError(`git ls-files failed in ${root}. Is it a git repository? Set "files": "walk" in ${CONFIG_FILE} to walk the folder instead.`);
+    throw new UsageError(`git ls-files failed in ${root}. Is it a git repository? ${walkHint}`);
   }
   return out.split("\0").filter(Boolean).map(normalizePath);
 }
-function listRepoFiles(root, mode) {
-  const paths = mode === "walk" ? walk(root, "") : gitList(root, ["--cached", "--others", "--exclude-standard"]);
+function listRepoFiles(root, mode, walkHint) {
+  const paths = mode === "walk" ? walk(root, "") : gitList(root, ["--cached", "--others", "--exclude-standard"], walkHint);
   return [...new Set(paths)].filter((p) => isFile(join(root, p))).sort();
 }
 function listUntracked(root, mode) {
@@ -1092,11 +1097,11 @@ function layoutHills(guide, sizes) {
   const py = new Float64Array(n);
   systems.forEach((s, i) => {
     const turn = (-0.5 + slot[i] / used.length) * 2 * Math.PI;
-    const rand = mulberry32(fnv1a(s.id));
+    const rand = mulberry32(fnv1a(String(s.id ?? "")));
     px[i] = (used.length > 1 ? ANCHOR_RX * Math.cos(turn) : 0) + (rand() * 2 - 1) * JITTER;
     py[i] = (used.length > 1 ? ANCHOR_RY * Math.sin(turn) : 0) + (rand() * 2 - 1) * JITTER;
   });
-  const index = new Map(systems.map((s, i) => [s.id, i]));
+  const index = new Map(systems.flatMap((s, i) => typeof s.id === "string" ? [[s.id, i]] : []));
   const trails = /* @__PURE__ */ new Map();
   systems.forEach((s, i) => {
     for (const link of s.connects ?? []) {
@@ -1233,9 +1238,29 @@ var DATA_EXTENSIONS = [
   "svg",
   "lock",
   "map",
-  "snap"
+  "snap",
+  // translation catalogues
+  "po",
+  "pot",
+  "resx",
+  "xlf",
+  "xliff",
+  "strings",
+  "stringsdict",
+  "xcstrings",
+  "arb",
+  // UI and project files that tools write as XML
+  "storyboard",
+  "xib",
+  "pbxproj",
+  // data
+  "ipynb",
+  "jsonl",
+  "ndjson",
+  "geojson",
+  "properties"
 ];
-var DATA_BASENAMES = ["go.sum", "Package.resolved"];
+var DATA_BASENAMES = ["go.sum", "go.work.sum", "Package.resolved", "gradle.lockfile"];
 function isCodePath(path, prose) {
   if (matchesAny(prose, path)) return false;
   const name = path.slice(path.lastIndexOf("/") + 1);
@@ -1259,12 +1284,12 @@ function countCode(text) {
   if (codeLines >= MINIFIED_MIN_LINES && chars / codeLines > MINIFIED_AVERAGE) return { codeLines: 0, branchPoints: 0, minified: true };
   return { codeLines, branchPoints: text.match(BRANCH)?.length ?? 0, minified: false };
 }
-function generatedPaths(root, paths, mode) {
-  const generated = /* @__PURE__ */ new Set();
-  if (mode === "walk" || !paths.length) return generated;
+function generatedOrVendored(root, paths, mode) {
+  const marked = /* @__PURE__ */ new Set();
+  if (mode === "walk" || !paths.length) return marked;
   let out;
   try {
-    out = execFileSync2("git", ["check-attr", "-z", "--stdin", "linguist-generated"], {
+    out = execFileSync2("git", ["check-attr", "-z", "--stdin", "linguist-generated", "linguist-vendored"], {
       cwd: root,
       input: `${paths.join("\0")}\0`,
       encoding: "utf8",
@@ -1272,19 +1297,19 @@ function generatedPaths(root, paths, mode) {
       stdio: ["pipe", "pipe", "ignore"]
     });
   } catch {
-    return generated;
+    return marked;
   }
   const parts = out.split("\0");
-  for (let i = 0; i + 2 < parts.length; i += 3) if (parts[i + 2] === "set" || parts[i + 2] === "true") generated.add(parts[i]);
-  return generated;
+  for (let i = 0; i + 2 < parts.length; i += 3) if (parts[i + 2] === "set" || parts[i + 2] === "true") marked.add(parts[i]);
+  return marked;
 }
 function systemSizes(ctx, guide, files) {
   const prose = ctx.config.prose ?? DEFAULT_PROSE;
   const owned = files.filter((p) => isCodePath(p, prose)).map((path) => ({ path, owners: guide.systems.filter((s) => matchesAny(s.owns ?? [], path)) })).filter((f) => f.owners.length > 0);
-  const generated = generatedPaths(ctx.root, owned.map((f) => f.path), ctx.config.files);
+  const leftOut = generatedOrVendored(ctx.root, owned.map((f) => f.path), ctx.config.files);
   const sums = new Map(guide.systems.map((s) => [s.id, { files: 0, codeLines: 0, branchPoints: 0 }]));
   for (const { path, owners } of owned) {
-    if (generated.has(path)) continue;
+    if (leftOut.has(path)) continue;
     const text = readText(ctx.root, path);
     if (text === void 0) continue;
     const code = countCode(text);
@@ -1553,16 +1578,19 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
         return '<li><div><button type="button" data-go="' + esc(s2.system) + '">' + esc(s ? s.name : s2.system) + "</button><p>" + esc(s2.text) + "</p></div></li>";
       }).join("") + "</ol></div>";
     }).join("");
-    return (view === "map" ? LEGEND : "") + '<div class="d-eyebrow" style="--lane:var(--accent)">Start here</div><h2>The big picture</h2>' +
+    return (view === "map" ? legend() : "") + '<div class="d-eyebrow" style="--lane:var(--accent)">Start here</div><h2>The big picture</h2>' +
       (A.overview ? '<p class="d-summary">' + esc(A.overview) + "</p>" : "") + '<div class="flows">' + flows + "</div>" +
       '<p class="empty-note">' + (view === "map" ? "Pick any hill to open that system and light its trails." : "Pick any tile to open that system. The tiles it connects to light up.") + "</p>";
   }
-  var LEGEND = '<div class="legend"><h2>How to read the map</h2>' +
-    "<p><b>Hills are systems.</b> A hill's footprint grows with the lines of code the system owns, and its height (its contour rings) with the branch points in that code.</p>" +
-    '<p class="rule">Lines of code are non-blank lines in code files, leaving out prose, data, config, lockfiles and generated files. Branch points count if, elif, for, foreach, while, case, catch, except, when, match, &amp;&amp;, || and a spaced ?, comments and strings included.</p>' +
-    "<p><b>Regions are groups.</b> A group's hills share one landmass in its colour.</p>" +
-    "<p><b>Trails are connections.</b> Point at or pick a hill to light its trails, with arrows for the way each one runs; point at a trail to read why it exists.</p>" +
-    "<p><b>Routes are flows.</b> Pick a route above the map and a marker walks it, stop by stop.</p></div>";
+  // The routes sentence only when the map draws a route (a flow whose every stop is on the map).
+  function legend() {
+    return '<div class="legend"><h2>How to read the map</h2>' +
+      "<p><b>Hills are systems.</b> A hill's footprint grows with the lines of code the system owns, and its height (its contour rings) with the branch points in that code.</p>" +
+      '<p class="rule">Lines of code are non-blank lines in code files, leaving out prose, data, config, translation catalogues, lockfiles, and generated and vendored files. Branch points count if, elif, for, foreach, while, case, catch, except, when, match, &amp;&amp;, || and a spaced ?, comments and strings included.</p>' +
+      "<p><b>Regions are groups.</b> A group's hills share one landmass in its colour.</p>" +
+      "<p><b>Trails are connections.</b> Point at or pick a hill to light its trails, with arrows for the way each one runs; point at a trail to read why it exists.</p>" +
+      (trail.routes ? "<p><b>Routes are flows.</b> Pick a route above the map and a marker walks it, stop by stop.</p>" : "") + "</div>";
+  }
 
   function dossier(s) {
     var g = groupById[s.group] || { id: s.group, name: s.group };
@@ -1623,9 +1651,12 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
     var hits = [];
     A.systems.forEach(function (s) {
       var m = !v || haystack(s).indexOf(v) >= 0 || (/[\\/.]/.test(v) && s.owns.some(function (o) { return globRe(o.toLowerCase()).test(v); }));
-      document.getElementById("tile-" + s.id).classList.toggle("dim", !m);
+      var tile = document.getElementById("tile-" + s.id); // none for a system in a group the guide does not declare
+      if (tile) tile.classList.toggle("dim", !m);
       if (m && v) hits.push(s);
     });
+    // The map dims the hills that do not match, as the tiles do.
+    trail.filter(v ? hits.map(function (s) { return s.id; }) : null);
     qs.textContent = !v ? "Pick a system to see how it works." : hits.length ? plural(hits.length, "system matches", "systems match") + (hits.length === 1 ? ": " + hits[0].name : "") : "No system matches. Try a file path from the repo root.";
     if (hits.length === 1) select(hits[0].id, false, true);
   });
@@ -1654,7 +1685,21 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   // The trail map and the tiles are two views of one selection. Map is the default on wide screens; a reader's choice
   // is kept in this browser. A map-only page has just the map, the route bar and the panel.
   var trailEl = document.getElementById("trailmap"), views = document.getElementById("views"), view = "map";
-  var trail = TrailMap.mount(trailEl, A, { onPick: function (id, quiet) { select(id, !quiet); } });
+  var noMap = { select: function () {}, resize: function () {}, filter: function () {}, routes: 0 };
+  // If the map fails to draw, the page carries on as the List: no switch, no map, and a controller that does nothing.
+  function withoutMap() {
+    trail = noMap;
+    view = "list";
+    views.hidden = true;
+    trailEl.hidden = true;
+    map.hidden = false;
+  }
+  var trail = noMap;
+  try {
+    trail = TrailMap.mount(trailEl, A, { onPick: function (id, quiet) { select(id, !quiet); } });
+  } catch (err) {
+    withoutMap();
+  }
   function show(v) {
     view = v;
     trailEl.hidden = v !== "map";
@@ -1672,12 +1717,16 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   window.addEventListener("resize", function () { if (view === "map") trail.resize(); });
   var saved = null;
   try { saved = localStorage.getItem("field-guide-view"); } catch (err) {}
-  if (A.map && A.map.mapOnly) {
+  var mapOnly = !!(A.map && A.map.mapOnly);
+  if (mapOnly) {
     views.hidden = true;
     document.getElementById("jobs-sec").hidden = true;
     document.getElementById("gloss-sec").hidden = true;
-    show("map");
-  } else show(saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list");
+  }
+  // A map that failed to mount has already left the List showing.
+  if (trail !== noMap) {
+    try { show(mapOnly ? "map" : saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list"); } catch (err) { withoutMap(); }
+  }
 
   var start = (location.hash || "").replace("#", "");
   select(byId[start] ? start : null, false);
@@ -1750,6 +1799,7 @@ var map_default = `<style>
 .tm svg.focus .hill:not(.on):not(.near) { opacity: 0.3; }
 .tm svg.routing .trail { opacity: 0.12; }
 .tm svg.routing .hill:not(.onroute) { opacity: 0.3; }
+.tm .hill.dim { opacity: 0.25; }
 .tm .route { fill: none; stroke: var(--tm-route); stroke-width: 3.4; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .tm .casing { fill: none; stroke: var(--tm-halo); stroke-width: 7; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .tm .badge circle { fill: var(--tm-route); stroke: var(--tm-halo); stroke-width: 2; }
@@ -1762,11 +1812,14 @@ var map_default = `<style>
 </style>
 <script>
 /* TrailMap.mount(container, data, hooks) draws the page data (a guide plus map.hills) into an empty container and
-   returns { select: function (id, centre), resize: function () }. It touches the page only through the container
-   and the hooks: hooks.onPick(id) fires when a reader picks a hill (null: the empty map), and hooks.onPick(id, true)
-   when a route arrives at a stop; the page then selects that system and calls select(id), which focuses the hill
-   (and with centre, pans to it) without calling back. Call resize() when the container is shown or changes size:
-   nothing is drawn while it has no size. Every string from the data goes in through textContent, never as markup. */
+   returns { select: function (id, centre), resize: function (), filter: function (ids), routes: n }. It touches the
+   page only through the container and the hooks: hooks.onPick(id) fires when a reader picks a hill (null: the empty
+   map), and hooks.onPick(id, true) when a route arrives at a stop; the page then selects that system and calls
+   select(id), which focuses the hill (and with centre, pans to it) without calling back. Call resize() when the
+   container is shown or changes size: nothing is drawn while it has no size. filter(ids) dims every hill whose id is
+   not in the array (a search's matches), and filter(null) undims them all. routes is the number of flows drawn as
+   routes (those whose every stop is on the map). Every string from the data goes in through textContent, never as
+   markup. */
 (function () {
   var NS = "http://www.w3.org/2000/svg";
   var RINGS = 9; // the tallest hill gets about this many contour rings
@@ -1963,7 +2016,7 @@ var map_default = `<style>
     area.tabIndex = -1;
     if (!hills.length) {
       box("p", "tm-empty", area, "This guide has no systems to map.");
-      return { select: function () {}, resize: function () {} };
+      return { select: function () {}, resize: function () {}, filter: function () {}, routes: 0 };
     }
     var svg = el("svg", { role: "group", "aria-label": "Trail map: hills are systems, trails are connections" }, area);
     var hint = box("div", "tm-hint", area, "Drag to pan \xB7 scroll or pinch to zoom \xB7 pick a hill");
@@ -1997,7 +2050,7 @@ var map_default = `<style>
     });
 
     var W = 0, H = 0, k = 1, view = null, fitK = 1, moved = false, built = false, turned = false;
-    var scalables = [], selected = null, hovered = null, keyed = null, route = null;
+    var scalables = [], selected = null, hovered = null, keyed = null, route = null, matched = null;
     // The layout's own extent, before any turn: it decides whether the map is turned to fit the area's shape.
     var lay = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
     hills.forEach(function (h) {
@@ -2162,12 +2215,13 @@ var map_default = `<style>
         taken.push(pick.b);
       });
     }
-    // Labels, greedily: the hill in focus first (always shown), then hills on the route, then by code lines. Each tries
-    // below, above, right and left of its summit, and hides when none is clear, as a map drops minor names.
+    // Labels, greedily: the hill in focus first (always shown), then hills on the route, then a search's matches, then by
+    // code lines. Each tries below, above, right and left of its summit, and hides when none is clear, as a map drops
+    // minor names.
     function placeLabels(taken) {
       var focus = hovered || keyed || (route ? route.stops[route.at].hill.id : selected), onRoute = Object.create(null);
       if (route) route.stops.forEach(function (st) { onRoute[st.hill.id] = 1; });
-      function rankOf(h) { return h.id === focus ? 4e9 : (onRoute[h.id] ? 2e9 : 0) + h.lines; }
+      function rankOf(h) { return h.id === focus ? 4e9 : (onRoute[h.id] ? 2e9 : 0) + (matched && matched[h.id] ? 1e9 : 0) + h.lines; }
       hills.slice().sort(function (a, b) { return rankOf(b) - rankOf(a) || a.i - b.i; }).forEach(function (h) {
         var bb = h.bb, mid = -(bb.y + bb.height / 2), side = bb.width / 2 + 12;
         var tries = [[0, 0], [0, -10 - (bb.y + bb.height)], [side, mid], [-side, mid]], pick = null, b = null;
@@ -2186,7 +2240,8 @@ var map_default = `<style>
       });
     }
 
-    // Focus lights the hill's trails (solid, with arrows) and dims the rest; a route does its own dimming.
+    // Focus lights the hill's trails (solid, with arrows) and dims the rest; a route does its own dimming. A search dims
+    // the hills it does not match.
     function highlight() {
       if (!built) return;
       var id = hovered || keyed || selected;
@@ -2200,6 +2255,7 @@ var map_default = `<style>
         h.el.classList.toggle("on", h.id === id);
         h.el.classList.toggle("near", !!id && h.id !== id && h.links.some(function (t) { return t.a.id === id || t.b.id === id; }));
         h.el.classList.toggle("sel", h.id === selected);
+        h.el.classList.toggle("dim", !!matched && !matched[h.id]);
       });
       layout();
     }
@@ -2369,6 +2425,7 @@ var map_default = `<style>
       cancelAnimationFrame(R.raf);
       if (!area.clientWidth) { leaveRoute(true); return; } // the page hid the map
       R.at = n;
+      R.t = 0;
       R.walker.x = st.hill.x;
       R.walker.y = st.hill.y;
       place(R.walker);
@@ -2384,13 +2441,15 @@ var map_default = `<style>
       highlight();
       if (R.playing) R.timer = setTimeout(function () { walk(n); }, Math.min(5200, 1500 + 24 * st.text.length));
     }
+    // Walks leg n from stop n to stop n + 1, starting R.t of the way along (in time): 0 from the stop, more on a resume.
     function walk(n) {
       var R = route, g = R.legs[n], still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       if (!g || still) { arrive(n + 1); return; }
-      var dur = clamp(g.len / k / WALK, 500, 2000), t0 = 0;
+      var dur = clamp(g.len / k / WALK, 500, 2000), from = R.t || 0, t0 = -1;
       function frame(now) {
-        if (!t0) t0 = now;
+        if (t0 < 0) t0 = now - from * dur;
         var t = Math.min(1, (now - t0) / dur), p = at(g.a, g.c, g.b, t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t));
+        R.t = t;
         R.walker.x = p.x;
         R.walker.y = p.y;
         place(R.walker);
@@ -2405,14 +2464,16 @@ var map_default = `<style>
       cPlay.setAttribute("aria-label", done ? "Play again" : R.playing ? "Pause" : "Play");
       cPlay.title = cPlay.getAttribute("aria-label");
     }
+    // Pause only stops the clock: the marker stays where it is, and play walks on from there.
     function togglePlay() {
       var R = route;
       if (!R) return;
       if (R.at === R.stops.length - 1 && !R.playing) { R.playing = true; arrive(0); return; }
       R.playing = !R.playing;
+      clearTimeout(R.timer);
+      cancelAnimationFrame(R.raf);
       playLabel();
       if (R.playing) walk(R.at);
-      else arrive(R.at);
     }
     function step(d) {
       var R = route;
@@ -2432,7 +2493,10 @@ var map_default = `<style>
       },
       resize: function () {
         var w = area.clientWidth, h = area.clientHeight;
-        if (!w || !h || (built && w === W && h === H)) return;
+        if (!w || !h) return;
+        // Same size: nothing to redraw, but state that changed while the map was hidden (a route that ended there) is
+        // shown again.
+        if (built && w === W && h === H) { highlight(); return; }
         var turn = wantsTurn(w, h), c = view ? { x: view.x + view.w / 2, y: view.y + view.h / 2 } : null;
         W = w;
         H = h;
@@ -2445,6 +2509,15 @@ var map_default = `<style>
         } else if (!moved) fit();
         else setView(look(c.x, c.y, k));
       },
+      filter: function (ids) {
+        matched = null;
+        if (Array.isArray(ids)) {
+          matched = Object.create(null);
+          ids.forEach(function (id) { matched[id] = 1; });
+        }
+        highlight();
+      },
+      routes: flows.length,
     };
     api.resize();
     return api;
@@ -2460,7 +2533,7 @@ var MARKER = "/*GUIDE_DATA*/";
 var MAP_MARKER = "<!--TRAIL_MAP-->";
 function renderPage(ctx, guide, opts = {}) {
   for (const m of [MARKER, MAP_MARKER]) if (guide_default.split(m).length !== 2) throw new Error(`the page template must contain ${m} exactly once`);
-  const files = universe(ctx, listRepoFiles(ctx.root, ctx.config.files));
+  const files = universe(ctx, listRepoFiles(ctx.root, ctx.config.files, ctx.walkHint));
   const stats = {
     files: files.length,
     jobs: guide.systems.reduce((n, s) => n + (s.jobs?.length ?? 0), 0),
@@ -2471,13 +2544,18 @@ function renderPage(ctx, guide, opts = {}) {
     generated: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
     source: normalizePath(relative4(ctx.root, ctx.guidePath))
   };
-  const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)), mapOnly: !!opts.mapOnly } }).replace(/</g, "\\u003c");
-  return guide_default.replace(MARKER, () => json).replace(MAP_MARKER, () => map_default);
+  const hills = layoutHills(guide, systemSizes(ctx, guide, files));
+  const json = JSON.stringify({ ...guide, stats, map: { hills, mapOnly: !!opts.mapOnly } }).replace(/</g, "\\u003c");
+  return { html: guide_default.replace(MARKER, () => json).replace(MAP_MARKER, () => map_default), hills };
 }
 function writePage(ctx, guide, out, opts) {
   const path = resolve3(out ?? resolve3(ctx.dir, "guide.html"));
-  writeFileSync3(path, renderPage(ctx, guide, opts));
-  return path;
+  for (const [what, input] of [["guide", ctx.guidePath], ["config file", ctx.configPath]]) {
+    if (input && samePath(path, input)) throw new UsageError(`Refusing to write the page to ${path}: that is the ${what} this render reads. Name another output file.`);
+  }
+  const { html, hills } = renderPage(ctx, guide, opts);
+  writeFileSync3(path, html);
+  return { path, hills };
 }
 
 // src/cli.ts
@@ -2509,9 +2587,12 @@ function flagValue(flags, name) {
   const v = flags.get(name);
   return typeof v === "string" && v ? v : void 0;
 }
-function render(ctx, guide, out, mapOnly) {
-  const path = writePage(ctx, guide, out, { mapOnly });
-  console.log(`Wrote ${path} (${guide.systems.length} systems). It does not validate the guide: run \`guide check\` first.`);
+function render(ctx, guide, out, mapOnly, outside = false) {
+  const { path, hills } = writePage(ctx, guide, out, { mapOnly });
+  console.log(`Wrote ${path} (${guide.systems.length} systems). ${outside ? "Render does not validate the guide." : "It does not validate the guide: run `guide check` first."}`);
+  if (outside && hills.length && hills.every((h) => h.codeLines === 0)) {
+    console.warn(`Warning: every system measures 0 lines of code. If the paths in the guide do not start at ${ctx.root}, pass --root <folder>.`);
+  }
   return 0;
 }
 function main(argv) {
@@ -2534,13 +2615,16 @@ function main(argv) {
     }
   }
   const dirFlag = typeof flags.get("dir") === "string" ? flags.get("dir") : void 0;
+  for (const f of ["root", "config"]) {
+    if (flags.has(f) && !flags.has("guide")) throw new UsageError(`--${f} goes with render --guide only: guide render --guide <file.json> [--root <folder>] [--config <file>] <out.html>`);
+  }
   if (flags.has("guide")) {
     const file = flags.get("guide");
     if (cmd !== "render") throw new UsageError("--guide goes with render only: guide render --guide <file.json> <out.html>");
     if (typeof file !== "string" || !file) throw new UsageError("--guide needs the guide's JSON file: guide render --guide <file.json> <out.html>");
     if (!pos[1]) throw new UsageError("guide render --guide <file.json> needs an output path, so nothing is written next to that guide by accident.");
     const ctx2 = outsideContext(file, flagValue(flags, "root"), flagValue(flags, "config"));
-    return render(ctx2, loadGuide(ctx2), pos[1], flags.has("map-only"));
+    return render(ctx2, loadGuide(ctx2), pos[1], flags.has("map-only"), true);
   }
   if (cmd === "init") {
     console.log(init(dirFlag, flags.has("force")));
@@ -2647,10 +2731,11 @@ var HELP = `Field Guide ${VERSION}: a plain-English map of every system in this 
   guide render [out.html]     one self-contained page (default: <guide folder>/guide.html)
   guide render --map-only [out.html]
                               just the map, the route bar and the entry panel
-  guide render --guide <file.json> [--root <folder>] [--map-only] <out.html>
+  guide render --guide <file.json> [--root <folder>] [--config <file>] [--map-only] <out.html>
                               a guide-shaped JSON that has no guide.config.json; reads it, writes only
                               <out.html>. The repo root defaults to the git top level of the JSON's folder;
-                              --config <file> supplies include, exclude and prose (a guide.config.json)
+                              --config <file> (shaped like guide.config.json) supplies files, include,
+                              exclude and prose. --root and --config go with --guide only
   guide init [--force]        vendor this CLI into ./docs/field-guide and detect a config
   guide inventory [--unowned] [--depth N]
                               the files on the map by folder, or the ones no system owns

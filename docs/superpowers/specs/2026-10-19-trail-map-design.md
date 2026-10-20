@@ -92,10 +92,10 @@ uses) and is none of:
   `tsv`, `svg` and similar (builder's call on the exact list; it is tested).
   Markup, styles and queries that people write (HTML, CSS, SQL, templates)
   do count as code;
-- generated: any file git marks `linguist-generated` (read with
-  `git check-attr`, local only), plus minified files (very long average line
-  length, or any line over a few thousand characters; the builder picks the
-  thresholds and tests them).
+- generated or vendored: any file git marks `linguist-generated` or
+  `linguist-vendored` (read with `git check-attr`, local only), plus minified
+  files (very long average line length, or any line over a few thousand
+  characters; the builder picks the thresholds and tests them).
 
 (Builder check, my call: data and config files are excluded because they make
 footprints without adding complexity, such as a large i18n or fixture JSON.)
@@ -136,15 +136,16 @@ map stays put as code changes. The layout has two phases:
 - **Phase 1 looks at structure only.** Groups start on an ellipse in guide
   order; systems start near their group's anchor with jitter from a PRNG
   seeded by each system's id (so adding one system does not reseed the
-  others). A fixed number of relaxation steps, with the forces fading to zero,
-  apply springs along trails (longer between groups), cohesion toward the
-  group's centre, a weak pull to the middle and collision. Collision uses one
-  uniform radius for every hill, so no size enters. Collision-only passes then
-  run until nothing overlaps.
+  others). A fixed number of relaxation steps apply springs along trails
+  (longer between groups), cohesion toward the group's centre and a weak pull
+  to the middle, all three fading to zero, and collision, which does not fade.
+  Collision uses one uniform radius for every hill, so no size enters.
+  Collision-only passes then run until nothing overlaps.
 - **Phase 2 makes room by size.** The phase 1 layout is scaled by the hills'
-  average size-bucket radius (a bucket is a coarse step on a log scale of code
-  lines, one per doubling), then hills are pushed apart by their size-bucket
-  radii until nothing overlaps. The exact size never enters.
+  root-mean-square size-bucket radius over phase 1's uniform radius, but never
+  below 0.5 (a bucket is a coarse step on a log scale of code lines, one per
+  doubling), then hills are pushed apart by their size-bucket radii until
+  nothing overlaps. The exact size never enters.
 
 So an ordinary commit, which leaves the groups, the systems, the connections
 and every system's size bucket alone, moves nothing. A system crossing a
@@ -240,10 +241,11 @@ flags:
   defaults to the git top level of the JSON's folder. Config falls back to
   defaults (`files: "git"`, include everything, the default prose globs); an
   optional `--config <file>` supplies a `guide.config.json`-shaped file
-  instead (include, exclude, prose). The JSON's own folder counts as the
+  instead (files, include, exclude, prose). The JSON's own folder counts as the
   guide folder, so its files are left out of sizes. An output path is required
   in this mode, so nothing is written next to someone else's guide by
-  accident.
+  accident, and it may not be the guide or the config file (no `render` writes
+  over a file it reads).
 - The page treats a missing array field on a system (`journey`, `keyFiles`,
   `connects` and the rest) as empty instead of failing, since `render` does
   not validate and `--guide` reads guides the check never saw.

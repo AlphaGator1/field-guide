@@ -350,7 +350,13 @@ const sizeFiles = (f) => {
   f["src/size/app.min.js"] = "if(a){b()}".repeat(400)
   f["src/size/gen.ts"] = "if (x) {}\n".repeat(10)
   f["src/size/huge.ts"] = "if (x) {}\n".repeat(300000)
-  f[".gitattributes"] = "src/size/gen.ts linguist-generated=true\nsrc/edge/gen.js linguist-generated\n"
+  // A translation catalogue, a UI file a tool writes, a data file, a lockfile known by its name, and vendored code.
+  f["src/size/messages.po"] = 'msgid "if"\nmsgstr "for"\n'
+  f["src/size/Main.storyboard"] = "<document>\nif for while\n</document>\n"
+  f["src/size/rows.jsonl"] = '{"if": 1}\n{"for": 2}\n'
+  f["src/size/gradle.lockfile"] = "if=1\nfor=2\n"
+  f["src/size/vendor.js"] = "if (v) {}\n".repeat(4)
+  f[".gitattributes"] = "src/size/gen.ts linguist-generated=true\nsrc/edge/gen.js linguist-generated\nsrc/size/vendor.js linguist-vendored\n"
   f["src/size/shared.ts"] = "x\n".repeat(10)
   f["manual/guide.md"] = "# Manual\nif for while\n"
   f["src/size/SETTINGS.YML"] = "if: 1\nfor: 2\n"
@@ -386,7 +392,7 @@ const sized = sizesOf(sizeRepo)
 t("sizes count code lines and branch points across languages",
   sized.code === 0 && sized.sizes.sizes?.codeLines === 6 + 6 + 12 + 7 + 6 + 5 && sized.sizes.sizes?.branchPoints === 7 + 7 + 6 + 2 + 3,
   sized.out + JSON.stringify(sized.sizes.sizes))
-t("prose, data, lockfiles, binaries, minified, generated and huge files are left out",
+t("prose, data, translation catalogues, lockfiles, binaries, minified, generated, vendored and huge files are left out",
   sized.sizes.sizes?.files === 6 && sized.sizes.sizes?.codeLines === 42 && sized.sizes.sizes?.branchPoints === 25,
   JSON.stringify(sized.sizes.sizes))
 t("a file owned by two systems is split evenly",
@@ -399,8 +405,9 @@ t("shares are summed before rounding (two half-lines make one line, not two)",
   JSON.stringify(sized.sizes.twin) === JSON.stringify({ files: 1, codeLines: 1, branchPoints: 0 }), JSON.stringify(sized.sizes.twin))
 t("every system has a size", Object.keys(sized.sizes).length === 8 && Object.keys(plain.sizes).length === 4, `${Object.keys(sized.sizes)} / ${Object.keys(plain.sizes)}`)
 const walked = sizesOf(makeRepo({ guide: sizeGuide, files: sizeFiles, config: (c) => { c.include.push("manual/**"); c.files = "walk" } }))
-t("sizes work in walk mode (where nothing is marked generated)",
-  walked.code === 0 && walked.sizes.sizes?.codeLines === 42 + 10 && walked.sizes.sizes?.branchPoints === 25 + 10,
+// gen.ts (10 lines, 10 branch points) and vendor.js (4 and 4) count here: there is no git to mark them.
+t("sizes work in walk mode (where nothing is marked generated or vendored)",
+  walked.code === 0 && walked.sizes.sizes?.codeLines === 42 + 10 + 4 && walked.sizes.sizes?.branchPoints === 25 + 10 + 4,
   walked.out + JSON.stringify(walked.sizes.sizes))
 t("a guide system with no owns list owns no code, and render still succeeds",
   sizesOf(makeRepo({ guide: (a) => { delete sys(a, "accounts").owns } })).sizes.accounts?.codeLines === 0)
@@ -486,6 +493,9 @@ const laid = Object.entries(degenerate).map(([name, guide]) => ({ name, ...hills
 t("degenerate guides lay out",
   laid.every((x) => x.code === 0 && x.hills.length === (x.name.startsWith("one") ? 1 : 4) && x.hills.every(finiteHill)),
   laid.map((x) => `${x.name}: exit ${x.code}, ${x.hills.length} hills ${x.out}`).join("\n"))
+const noId = hillsOf(makeRepo({ guide: (a) => { delete sys(a, "accounts").id } }))
+t("a system with no id still renders, with a hill",
+  noId.code === 0 && noId.hills.length === 4 && noId.hills.every(finiteHill), `exit ${noId.code}, ${noId.hills.length} hills ${noId.out}`)
 
 // `count` generated systems in `groups` groups: system i is in group i % groups (so neighbours in the list sit in different
 // groups and every connection crosses groups), owns one file of 10 * (i + 1) lines, and connects to the next two.
@@ -625,12 +635,41 @@ t("--guide renders an outside guide",
   outsideRun.code === 0 && outsidePage.map?.hills.length === 4 && outsidePage.map.mapOnly === true && outsidePage.title === "Fixture Guide" &&
     outsideRun.out.includes("does not validate the guide") && beforeRender === "" && status(outside) === "?? docs/atlas/map.html",
   `${outsideRun.out}\nbefore: ${beforeRender}\nafter: ${status(outside)}`)
+t("--guide does not send the reader to guide check (the guide may have no guide project)",
+  outsideRun.code === 0 && outsideRun.out.includes("Render does not validate the guide.") && !outsideRun.out.includes("guide check"), outsideRun.out)
 
 const noOut = runBare(outside, ["render", "--guide", "docs/atlas/atlas.json", "--map-only"])
 t("--guide needs an output path, and writes nothing without one",
   noOut.code === 2 && noOut.out.includes("guide render --guide <file.json> needs an output path, so nothing is written next to that guide by accident.") &&
     !existsSync(join(outside, "docs/atlas/guide.html")) && status(outside) === "?? docs/atlas/map.html",
   `${noOut.out}\n${status(outside)}`)
+
+// render never writes its page over a file it reads: the guide, or the config, named as the output.
+const CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin"
+const overRepo = outsideRepo()
+writeFileSync(join(overRepo, "atlas.config.json"), JSON.stringify({ exclude: ["src/lib/**"] }))
+const bytesOf = (dir, p) => (existsSync(join(dir, p)) ? readFileSync(join(dir, p)) : Buffer.alloc(0))
+const unchanged = (dir, p, was) => was.length > 0 && bytesOf(dir, p).equals(was)
+const refusal = (x) => x.code === 2 && x.out.includes("Refusing to write the page to")
+const atlasWas = bytesOf(overRepo, "docs/atlas/atlas.json")
+const atlasCfgWas = bytesOf(overRepo, "atlas.config.json")
+// On a disk that ignores case, the same file spelled in another case is refused too.
+const overGuide = [["docs/atlas/atlas.json"], ...(CASE_INSENSITIVE ? [["docs/Atlas/ATLAS.json"]] : [])]
+  .map(([out]) => runBare(overRepo, ["render", "--guide", "docs/atlas/atlas.json", out]))
+t("--guide refuses to write the page over the guide it reads",
+  overGuide.every(refusal) && overGuide[0].out.includes("that is the guide this render reads") && unchanged(overRepo, "docs/atlas/atlas.json", atlasWas),
+  overGuide.map((x) => `${x.code} ${x.out}`).join("\n"))
+const overCfg = runBare(overRepo, ["render", "--guide", "docs/atlas/atlas.json", "--config", "atlas.config.json", "atlas.config.json"])
+t("--guide refuses to write the page over its --config file",
+  refusal(overCfg) && overCfg.out.includes("that is the config file this render reads") && unchanged(overRepo, "atlas.config.json", atlasCfgWas) &&
+    unchanged(overRepo, "docs/atlas/atlas.json", atlasWas),
+  `${overCfg.code} ${overCfg.out}`)
+const overNormal = makeRepo()
+const normalWas = ["docs/field-guide/guide.json", "docs/field-guide/guide.config.json"].map((p) => bytesOf(overNormal, p))
+const overNormalRuns = ["docs/field-guide/guide.json", "docs/field-guide/guide.config.json"].map((p) => run(overNormal, ["render", p]))
+t("render refuses to write the page over guide.json or guide.config.json",
+  overNormalRuns.every(refusal) && unchanged(overNormal, "docs/field-guide/guide.json", normalWas[0]) && unchanged(overNormal, "docs/field-guide/guide.config.json", normalWas[1]),
+  overNormalRuns.map((x) => `${x.code} ${x.out}`).join("\n"))
 
 const cfgDir = mkdtempSync(join(tmpdir(), "guide-cfg-"))
 temps.push(cfgDir)
@@ -670,6 +709,10 @@ const atGitRoot = sizeIn([])
 const atApp = sizeIn(["--root", join(nested, "app")])
 t("--root says where the guide's paths start (default: the git top level)",
   atGitRoot.code === 0 && atGitRoot.size === 0 && atApp.code === 0 && atApp.size === 3, `${atGitRoot.out}${atApp.out}${atGitRoot.size} / ${atApp.size}`)
+// At the git top level no path in the guide matches a file, so every system measures nothing: a warning, not an error.
+t("--guide warns, in one line, when every system measures 0 lines, and points at --root",
+  atGitRoot.code === 0 && /^Warning: every system measures 0 lines of code\. .*pass --root <folder>\.$/m.test(atGitRoot.out) && !atApp.out.includes("every system measures 0"),
+  `${atGitRoot.out}\n${atApp.out}`)
 
 // A guide at the root of the repo: its folder is the whole repo, so only the JSON itself stays off the map.
 const rootGuide = outsideRepo(baseGuide, (f) => {
@@ -691,6 +734,27 @@ const refused = [["check", "--guide", "x.json"], ["orders", "--guide", "x.json"]
 t("--guide is refused by other commands", refused.every((x) => x.code === 2 && x.out.includes("--guide goes with render only")), refused.map((x) => `${x.code} ${x.out}`).join("\n"))
 const noFile = runBare(outside, ["render", "out.html", "--guide"])
 t("--guide without a file is a usage error", noFile.code === 2 && noFile.out.includes("--guide needs the guide's JSON file"), noFile.out)
+
+// Without --guide, --root and --config would be ignored, and each would take the next word (an output path) as its value.
+const looseRepo = makeRepo()
+const looseCfg = run(looseRepo, ["render", "--config", "x.json"])
+const looseRoot = run(looseRepo, ["render", "--root", "app", "out.html"])
+t("--root and --config without --guide are usage errors, and nothing is written",
+  looseCfg.code === 2 && looseCfg.out.includes("--config goes with render --guide only") && looseRoot.code === 2 && looseRoot.out.includes("--root goes with render --guide only") &&
+    !existsSync(join(looseRepo, "out.html")) && !existsSync(join(looseRepo, "docs/field-guide/guide.html")),
+  `${looseCfg.code} ${looseCfg.out}\n${looseRoot.code} ${looseRoot.out}`)
+
+// A --root that is no git repository: git cannot list the files, and there is no guide.config.json to edit.
+const noGit = mkdtempSync(join(tmpdir(), "guide-nogit-"))
+temps.push(noGit)
+writeFileSync(join(noGit, "atlas.json"), JSON.stringify(baseGuide))
+const noGitRun = spawnSync(process.execPath, [CLI, "render", "--guide", join(noGit, "atlas.json"), "--root", noGit, join(noGit, "out.html")],
+  { cwd: noGit, encoding: "utf8", env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(noGit) } })
+const noGitOut = `${noGitRun.stdout}${noGitRun.stderr}`
+t("--guide's git failure points at --config with \"files\": \"walk\", not at guide.config.json",
+  noGitRun.status === 2 && noGitOut.includes("git ls-files failed") && noGitOut.includes('--config <file> holding {"files": "walk"}') && !noGitOut.includes("guide.config.json") &&
+    !existsSync(join(noGit, "out.html")),
+  noGitOut)
 
 // ---------------------------------------------------------------- 4e. the page
 console.log("\n--- 4e. the page ---")

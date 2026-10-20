@@ -11,7 +11,7 @@
  *   guide render [out.html]     the guide as one self-contained page
  *   guide render --map-only [out.html]
  *                               just the map, the route bar and the entry panel
- *   guide render --guide <file.json> [--root <folder>] [--map-only] <out.html>
+ *   guide render --guide <file.json> [--root <folder>] [--config <file>] [--map-only] <out.html>
  *                               a guide-shaped JSON with no guide.config.json
  *   guide init [--force]        vendor this CLI into ./docs/field-guide and write a config
  *   guide inventory [--unowned] the files on the map, by folder (or the unowned ones)
@@ -59,9 +59,13 @@ function flagValue(flags: Map<string, string | true>, name: string): string | un
   return typeof v === "string" && v ? v : undefined
 }
 
-function render(ctx: Ctx, guide: Guide, out: string | undefined, mapOnly: boolean): number {
-  const path = writePage(ctx, guide, out, { mapOnly })
-  console.log(`Wrote ${path} (${guide.systems.length} systems). It does not validate the guide: run \`guide check\` first.`)
+/** `outside`: a render --guide, whose guide may have no guide project (so no `guide check`) and whose root may be a guess. */
+function render(ctx: Ctx, guide: Guide, out: string | undefined, mapOnly: boolean, outside = false): number {
+  const { path, hills } = writePage(ctx, guide, out, { mapOnly })
+  console.log(`Wrote ${path} (${guide.systems.length} systems). ${outside ? "Render does not validate the guide." : "It does not validate the guide: run `guide check` first."}`)
+  if (outside && hills.length && hills.every((h) => h.codeLines === 0)) {
+    console.warn(`Warning: every system measures 0 lines of code. If the paths in the guide do not start at ${ctx.root}, pass --root <folder>.`)
+  }
   return 0
 }
 
@@ -86,6 +90,10 @@ function main(argv: string[]): number {
     }
   }
   const dirFlag = typeof flags.get("dir") === "string" ? (flags.get("dir") as string) : undefined
+  // Without --guide they would be ignored, and each takes the next word as its value (an output path, say).
+  for (const f of ["root", "config"]) {
+    if (flags.has(f) && !flags.has("guide")) throw new UsageError(`--${f} goes with render --guide only: guide render --guide <file.json> [--root <folder>] [--config <file>] <out.html>`)
+  }
   if (flags.has("guide")) {
     // An outside guide has no config to find, so this branch comes before the context is loaded.
     const file = flags.get("guide")
@@ -93,7 +101,7 @@ function main(argv: string[]): number {
     if (typeof file !== "string" || !file) throw new UsageError("--guide needs the guide's JSON file: guide render --guide <file.json> <out.html>")
     if (!pos[1]) throw new UsageError("guide render --guide <file.json> needs an output path, so nothing is written next to that guide by accident.")
     const ctx = outsideContext(file, flagValue(flags, "root"), flagValue(flags, "config"))
-    return render(ctx, loadGuide(ctx), pos[1], flags.has("map-only"))
+    return render(ctx, loadGuide(ctx), pos[1], flags.has("map-only"), true)
   }
   if (cmd === "init") {
     console.log(init(dirFlag, flags.has("force")))
@@ -206,10 +214,11 @@ const HELP = `Field Guide ${VERSION}: a plain-English map of every system in thi
   guide render [out.html]     one self-contained page (default: <guide folder>/guide.html)
   guide render --map-only [out.html]
                               just the map, the route bar and the entry panel
-  guide render --guide <file.json> [--root <folder>] [--map-only] <out.html>
+  guide render --guide <file.json> [--root <folder>] [--config <file>] [--map-only] <out.html>
                               a guide-shaped JSON that has no guide.config.json; reads it, writes only
                               <out.html>. The repo root defaults to the git top level of the JSON's folder;
-                              --config <file> supplies include, exclude and prose (a guide.config.json)
+                              --config <file> (shaped like guide.config.json) supplies files, include,
+                              exclude and prose. --root and --config go with --guide only
   guide init [--force]        vendor this CLI into ./docs/field-guide and detect a config
   guide inventory [--unowned] [--depth N]
                               the files on the map by folder, or the ones no system owns
