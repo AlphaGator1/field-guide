@@ -30,7 +30,7 @@ code before it is accepted.
 *The rendered page for the bundled [ParaFlow example](examples/paraflow/):
 pick a hill and its entry opens beside the map, while its trails light up.*
 
-> Status: 0.2.1. Tested on two outside repositories (below). See
+> Status: 0.3.0. Tested on two outside repositories (below). See
 > [`examples/paraflow/`](examples/paraflow/) for a complete guide and its
 > rendered page.
 
