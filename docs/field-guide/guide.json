@@ -428,8 +428,8 @@
           "what": "What it is, install, cost, limits."
         },
         {
-          "path": "docs/images/paraflow-guide-light.png",
-          "what": "The README screenshot of the ParaFlow example page (a dark twin sits beside it)."
+          "path": "docs/images/paraflow-map-light.png",
+          "what": "The README screenshot of the ParaFlow example page's trail map (a dark twin sits beside it)."
         }
       ],
       "models": [],
@@ -540,7 +540,7 @@
       "group": "plugin",
       "name": "Bundled example",
       "oneLiner": "A complete guide the plugin built for ParaFlow, with its rendered page.",
-      "summary": "examples/paraflow holds the field guide /field-guide:build produced for ParaFlow, an open-source Tauri dictation app, at its commit ecfdf66: the guide, its config and the rendered page. It shows what a finished build looks like before anyone runs one. It is data, not code: the plugin's own check treats it as prose.",
+      "summary": "examples/paraflow holds the field guide /field-guide:build produced for ParaFlow, an open-source Tauri dictation app, at its commit ecfdf66: the guide, its config and the rendered page, which opens on the trail map and was rendered by this plugin's guide render at ParaFlow commit 043aaeb (ecfdf66 plus the files the build added). It shows what a finished build looks like before anyone runs one. It is data, not code: the plugin's own check treats it as prose.",
       "journey": [
         "A visitor opens examples/paraflow/README.md",
         "They download guide.html and browse the 13 systems",
@@ -579,7 +579,7 @@
       "rules": [],
       "checks": [],
       "watchOuts": [
-        "Always regenerate the example from a real build at a stated ParaFlow commit, because hand edits would show readers a guide no build produced."
+        "Always regenerate the example from a real build or render at a stated ParaFlow commit, because hand edits would show readers a page no run produced."
       ]
     }
   ],

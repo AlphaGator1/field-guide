@@ -15,24 +15,74 @@ tests that guard it. It comes with:
 - **a check for CI** (`node docs/field-guide/guide.mjs check`) that fails when a file
   belongs to no system or when anything the guide names no longer exists;
 - **a single-page HTML view** for people (`node docs/field-guide/guide.mjs render`),
-  offline, light and dark, phone to desktop.
+  which opens on a trail map of the systems (below); offline, light and dark,
+  phone to desktop.
 
 The plugin builds the guide with parallel drafting subagents, then has a
 second set of **adversarial** subagents fact-check every claim against the
 code before it is accepted.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/paraflow-guide-dark.png">
-  <img alt="The rendered field guide for ParaFlow: system tiles grouped by area on the left, the Text injection system's entry open on the right, and its connected systems highlighted." src="docs/images/paraflow-guide-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/paraflow-map-dark.png">
+  <img alt="The rendered field guide for ParaFlow, opening on its trail map: thirteen hills in four tinted regions, the Dictation pipeline hill selected with arrowed trails to the eight hills it connects to and the rest dimmed, and its entry open on the right." src="docs/images/paraflow-map-light.png">
 </picture>
 
 *The rendered page for the bundled [ParaFlow example](examples/paraflow/):
-pick a system and its entry opens beside the map, while the systems it
-connects to light up with the reason.*
+pick a hill and its entry opens beside the map, while its trails light up.*
 
 > Status: 0.2.1. Tested on two outside repositories (below). See
 > [`examples/paraflow/`](examples/paraflow/) for a complete guide and its
 > rendered page.
+
+## The trail map
+
+`render` opens on a map of the guide, drawn as terrain:
+
+- **Hills are systems.** A hill's footprint grows with the lines of code the
+  system owns, and its height (its contour rings) with the branch points in
+  that code. A wide, low hill is a lot of plain code; a small, steep one is
+  dense logic. A system with no code is a flat marker.
+- **Regions are groups.** A group's hills share one landmass in the group's
+  colour, named on its edge.
+- **Trails are connections.** Each `connects` entry is a trail between two
+  hills. Pick a hill to light its trails, with arrows for the way each one
+  runs, and point at a trail to read why it exists.
+- **Routes are flows.** Pick a route above the map and a marker walks it, stop
+  by stop, with each step's sentence.
+
+Sizes are counted from the code each time you render, never typed by hand. The
+footprint's radius grows with the square root of a system's lines of code, so
+its area roughly follows the code. Lines are the non-blank lines in code files,
+which leaves out prose, data and config files, lockfiles, binaries, and
+generated and minified files. Height grows with the square root of its branch
+points: a count of `if`, `elif`, `for`, `foreach`, `while`, `case`, `catch`, `except`,
+`when`, `match`, `&&`, `||` and a spaced `?`. It is a count, not a parser, so it also
+matches inside strings and comments; that is fine for comparing systems within
+one repo.
+
+The layout comes from the guide's structure (groups and connections), and from
+the code's size only in coarse steps, one per doubling of lines. A commit that
+leaves the groups, the connections and the size steps alone moves no hill, and
+a system that crosses into the next step moves the hills around it only a
+little, so a reader can learn the map. The map is the default view when the
+window is at least 860px wide; the list of tiles is the default below that, and
+your choice is remembered in the browser.
+
+Two flags change what `render` writes:
+
+```
+node docs/field-guide/guide.mjs render --map-only map.html   # just the map, the route bar and the entry panel
+node <field-guide>/dist/guide.mjs render --guide docs/architecture.json --map-only docs/architecture-map.html
+```
+
+`--guide <file.json> [--root <folder>] [--config <file>] <out.html>` draws a
+guide that other tooling maintains and that has no `guide.config.json`. It reads
+the JSON and writes only the page you name, so an output path is required. The
+repo root defaults to the git top level of the JSON's folder; `--root` names
+another. `--config` supplies a `guide.config.json`-shaped file (`include`,
+`exclude`, `prose`) that says which files count; without it, every file git
+lists counts, except those in the JSON's own folder. `--map-only` works with
+`--guide` too.
 
 ## Where it comes from
 
@@ -123,7 +173,10 @@ node docs/field-guide/guide.mjs <path>           # which system owns a file, and
 node docs/field-guide/guide.mjs --search <word ...>  # entries, flows, overview and glossary mentioning every word
 node docs/field-guide/guide.mjs overview         # the overview and every end-to-end flow
 node docs/field-guide/guide.mjs check            # every file on the map, every name real
-node docs/field-guide/guide.mjs render [out]     # one self-contained HTML page
+node docs/field-guide/guide.mjs render [out]     # one self-contained HTML page, opening on the trail map
+node docs/field-guide/guide.mjs render --map-only [out]  # just the map, the route bar and the entry panel
+node docs/field-guide/guide.mjs render --guide <file.json> [--root <folder>] [--config <file>] <out>
+                                                 # a guide kept by other tooling; writes only <out>
 node docs/field-guide/guide.mjs changed [commit] # systems whose files changed since a commit
 ```
 

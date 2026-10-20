@@ -131,21 +131,29 @@ Drawing rules:
 ### Layout
 
 Positions come from the guide's structure, not from the code's size, so the
-map stays put as code changes:
+map stays put as code changes. The layout has two phases:
 
-- Groups start on an ellipse in guide order; systems start near their group's
-  anchor with jitter from a PRNG seeded by each system's id (so adding one
-  system does not reseed the others).
-- A fixed number of relaxation steps: springs along trails (longer between
-  groups), cohesion toward the group's centre, collision, and a weak pull to
-  the middle.
-- Collision uses each hill's size *bucket* (a few coarse steps on a log scale
-  of code lines), not its exact size, so ordinary commits do not change the
-  forces at all. Only a system crossing a bucket boundary, or a change to
-  groups, systems or connections, can move hills, and then only a little.
+- **Phase 1 looks at structure only.** Groups start on an ellipse in guide
+  order; systems start near their group's anchor with jitter from a PRNG
+  seeded by each system's id (so adding one system does not reseed the
+  others). A fixed number of relaxation steps, with the forces fading to zero,
+  apply springs along trails (longer between groups), cohesion toward the
+  group's centre, a weak pull to the middle and collision. Collision uses one
+  uniform radius for every hill, so no size enters. Collision-only passes then
+  run until nothing overlaps.
+- **Phase 2 makes room by size.** The phase 1 layout is scaled by the hills'
+  average size-bucket radius (a bucket is a coarse step on a log scale of code
+  lines, one per doubling), then hills are pushed apart by their size-bucket
+  radii until nothing overlaps. The exact size never enters.
+
+So an ordinary commit, which leaves the groups, the systems, the connections
+and every system's size bucket alone, moves nothing. A system crossing a
+bucket boundary changes phase 2 only, and moves hills only a little. A change
+to the groups, the systems or the connections can move more.
+
 - Tested: renders before and after a 10% change to one system's code lines
-  give identical positions; a change that crosses a bucket moves no hill more
-  than a small bound the builder sets.
+  give identical positions; growing one system across a bucket moves no hill
+  more than 0.1 of the layout's diagonal, on guides of 13 and 60 systems.
 - Layout runs in the CLI at render time (so it is testable) and its positions
   travel in the page's data. The page only does one thing to it: turn it a
   quarter when the map area is tall and the layout is wide, or the reverse.

@@ -17,7 +17,8 @@ person first (an owner, a new contributor) and for an AI coding session second.
   switch, data model, connection) no longer exists. It also keeps each printed
   entry under a size ratchet (`entryMaxChars`): trim the prose, never raise it.
 - **`node {{DIR}}/guide.mjs render`** writes `guide.html`, one self-contained
-  page to browse the map.
+  page to browse the map. It opens on a trail map: a hill for each system,
+  sized by its code, with a trail for each connection.
 - **`guide.config.json`** says which files must be on the map (`include`,
   `exclude`) and which stack add-ons the check runs.
 - **`guide.mjs`** is a vendored copy of the Field Guide CLI. Do not edit it;
