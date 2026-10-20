@@ -8,9 +8,9 @@ ParaFlow commit `ecfdf66`, and the page rendered from it.
 
 - **[`guide.html`](guide.html)**: the rendered page, which opens on the trail
   map. Download it and open it in a browser; it makes no network requests. It
-  was rendered with `guide render` at ParaFlow commit `043aaeb`: the build
-  commit `ecfdf66` plus the files that build added. The hills' sizes are
-  counted from the code at that commit.
+  was rendered with this plugin's `guide render` at ParaFlow commit `043aaeb`:
+  the build commit `ecfdf66` plus the files that build added. The hills' sizes
+  are counted from the code at that commit.
 - **`guide.json`**: the guide itself: 13 systems in 4 groups, 3 end-to-end
   flows and 45 glossary terms, covering all 57 files at that commit plus the
   two the build added (a project skill and a CI workflow).
@@ -48,5 +48,10 @@ node docs/field-guide/guide.mjs overview                # the three end-to-end f
 The prose describes the code at `ecfdf66`. Later ParaFlow changes are
 reflected only after `/field-guide:update`. To regenerate the page, check
 out ParaFlow at `043aaeb`, copy this folder's `guide.json` and
-`guide.config.json` over the ones in its `docs/field-guide/`, and run
-`guide render` there.
+`guide.config.json` over the ones in its `docs/field-guide/`, and render with
+this plugin's CLI, not the older `guide.mjs` vendored in ParaFlow (it has no
+map):
+
+```
+node <field-guide>/dist/guide.mjs --dir <ParaFlow checkout>/docs/field-guide render <out.html>
+```
