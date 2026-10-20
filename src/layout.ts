@@ -36,8 +36,7 @@ const REST_OTHER = 150 // ...and between groups
 const CLEARANCE_SAME = { scale: 0.8, gap: 30 } // the least centre distance, as scale * (ra + rb) + gap...
 const CLEARANCE_OTHER = { scale: 1.15, gap: 120 } // ...within a group and between groups
 const SCALE_MIN = 0.5 // phase 1 places hills as if they were PHASE1_RADIUS big; the layout is scaled by their average radius over that, but never below this
-const STEPS2 = 300 // phase 2 steps
-const TETHER = 0.05 // the share of the way back to its phase 1 place a hill closes per step in phase 2
+const STEPS2 = 300 // phase 2 collision steps
 const SETTLE_PASSES = 2000 // at most this many extra collision-only passes after each phase; they stop once the worst overlap is under 0.01
 
 /** FNV-1a: a 32-bit hash of the text. */
@@ -201,22 +200,14 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
 
   // Phase 2: room by size. The collision radius comes from the size bucket, never the exact size. If the hills are
   // bigger than phase 1's, the whole layout is first scaled up to match (by a bucket-based average, so one system
-  // crossing a bucket scales it only a little), and each hill is then tethered to its place.
+  // crossing a bucket scales it only a little), and the hills are then pushed apart from there.
   const radius = Float64Array.from(size.map((z) => footprintRadius(2 ** sizeBucket(z.codeLines))))
   const scale = Math.max(SCALE_MIN, Math.sqrt(radius.reduce((sum, r) => sum + r * r, 0) / Math.max(1, n)) / PHASE1_RADIUS)
   for (let i = 0; i < n; i++) {
     px[i] *= scale
     py[i] *= scale
   }
-  const homeX = Float64Array.from(px)
-  const homeY = Float64Array.from(py)
-  for (let step = 0; step < STEPS2; step++) {
-    for (let i = 0; i < n; i++) {
-      px[i] += (homeX[i] - px[i]) * TETHER
-      py[i] += (homeY[i] - py[i]) * TETHER
-    }
-    collide(radius)
-  }
+  for (let step = 0; step < STEPS2; step++) collide(radius)
   settle(radius)
 
   const peak = Math.max(0, ...size.map((z) => Math.sqrt(z.branchPoints)))

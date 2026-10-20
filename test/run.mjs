@@ -532,14 +532,15 @@ const growOne = (count, groups, every) => {
 }
 const scaleDetail = (r) => `worst ${r.worst.toFixed(3)} of the diagonal over ${r.trials} trials; ${r.bad.join("; ")}`
 // Measured on exactly these samples (every system on 13, every 5th on 60): this layout moves a hill at most 0.03 and 0.02 of the
-// diagonal; the first layout (no tether, one pair pushed after another) moved one 0.19 and 0.33, so the 60-system bound fails it.
+// diagonal. The first layout moved one 0.19 and 0.33 (no tether, one pair pushed after another), and the one after it, with only a
+// tether, 0.01 and 0.13, so the 60-system bound of 0.1 fails both of them.
 const small3 = growOne(13, 3, 1)
 t("one system growing a bucket moves hills only a little: 13 systems in 3 groups",
   small3.trials === 13 && small3.bad.length === 0 && small3.worst <= 0.1,
   scaleDetail(small3))
 const big3 = growOne(60, 3, 5)
 t("one system growing a bucket moves hills only a little: 60 systems in 3 groups",
-  big3.trials === 12 && big3.bad.length === 0 && big3.worst <= 0.25,
+  big3.trials === 12 && big3.bad.length === 0 && big3.worst <= 0.1,
   scaleDetail(big3))
 
 // Structure: systems that connect sit nearer each other than the average pair. The links are seeded and random, but each goes

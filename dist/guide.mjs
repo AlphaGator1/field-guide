@@ -1039,7 +1039,6 @@ var CLEARANCE_SAME = { scale: 0.8, gap: 30 };
 var CLEARANCE_OTHER = { scale: 1.15, gap: 120 };
 var SCALE_MIN = 0.5;
 var STEPS2 = 300;
-var TETHER = 0.05;
 var SETTLE_PASSES = 2e3;
 function fnv1a(text) {
   let h = 2166136261;
@@ -1174,15 +1173,7 @@ function layoutHills(guide, sizes) {
     px[i] *= scale;
     py[i] *= scale;
   }
-  const homeX = Float64Array.from(px);
-  const homeY = Float64Array.from(py);
-  for (let step = 0; step < STEPS2; step++) {
-    for (let i = 0; i < n; i++) {
-      px[i] += (homeX[i] - px[i]) * TETHER;
-      py[i] += (homeY[i] - py[i]) * TETHER;
-    }
-    collide(radius);
-  }
+  for (let step = 0; step < STEPS2; step++) collide(radius);
   settle(radius);
   const peak = Math.max(0, ...size.map((z) => Math.sqrt(z.branchPoints)));
   return systems.map((s, i) => ({
