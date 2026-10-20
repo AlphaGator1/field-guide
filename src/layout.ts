@@ -1,14 +1,14 @@
 /**
  * Where each system's hill stands on the trail map, and how big it is drawn.
- * Positions come from the guide's structure (which group a system is in, what
- * it connects to) and from its code size only in coarse log-scale buckets, so
- * the map stays put as code changes: an ordinary commit moves nothing, and a
- * system that crosses a bucket boundary moves its neighbours only a little.
- * Pure and deterministic: the same guide and sizes give the same hills on every
- * run, and adding a system does not reseed the others. Two things keep a small
- * change from rearranging a crowd of hills: every pair's collision push is
- * applied at once (pushing one pair after another let the order decide), and a
- * tether holds each hill near its starting place, which no size can change.
+ * The layout has two phases. Phase 1 places the systems from the guide's
+ * structure alone (which group a system is in, what it connects to) and looks
+ * at no size. Phase 2 starts from those places and only makes room: it pushes
+ * hills apart by their size bucket (a coarse log-scale step of code lines,
+ * never the exact size), so the map stays put as code changes: an ordinary
+ * commit moves nothing, and a system that crosses a bucket boundary moves the
+ * hills around it only a little. Pure and deterministic: the same guide and
+ * sizes give the same hills on every run, and adding a system does not reseed
+ * the others (each one's start comes from its own id).
  */
 import type { Guide, Hill, Size } from "./types"
 
@@ -25,17 +25,20 @@ export function footprintRadius(codeLines: number): number {
 const ANCHOR_RX = 340 // groups start on an ellipse this wide...
 const ANCHOR_RY = 240 // ...and this tall
 const JITTER = 70 // a system starts within this distance (a square's half-side) of its group's anchor
-const STEPS = 700 // relaxation steps; alpha scales the springs, cohesion and pull down linearly from 1 to 0
-const SPRING = 0.02 // the share of a trail's stretch removed per step at full alpha (before dividing by its ends' trail counts)
+const PHASE1_RADIUS = 90 // the one collision radius every hill has in phase 1, where no size is looked at
+const STEPS1 = 700 // phase 1 steps; alpha scales the springs, cohesion and pull down linearly from 1 to 0
+const SPRING = 0.4 // the share of a trail's stretch removed per step at full alpha (before dividing by its ends' trail counts)
 const COHESION = 0.02 // the share of the distance to the group's centre closed per step at full alpha
 const PULL = 0.001 // the share of the distance to the origin closed per step at full alpha
-const TETHER = 0.09 // the share of the way back to its starting place a hill closes per step, kept up to the last step (not scaled by alpha)
 const COLLISION = 0.1 // the share of an overlap each end of a pair removes per step; all pairs push at once
 const REST_SAME = 36 // a trail's rest length beyond the two collision radii, within a group...
 const REST_OTHER = 150 // ...and between groups
 const CLEARANCE_SAME = { scale: 0.8, gap: 30 } // the least centre distance, as scale * (ra + rb) + gap...
 const CLEARANCE_OTHER = { scale: 1.15, gap: 120 } // ...within a group and between groups
-const SETTLE_PASSES = 2000 // at most this many extra collision-only passes after the last step; they stop once the worst overlap is under 0.01
+const SCALE_MIN = 0.5 // phase 1 places hills as if they were PHASE1_RADIUS big; the layout is scaled by their average radius over that, but never below this
+const STEPS2 = 300 // phase 2 steps
+const TETHER = 0.05 // the share of the way back to its phase 1 place a hill closes per step in phase 2
+const SETTLE_PASSES = 2000 // at most this many extra collision-only passes after each phase; they stop once the worst overlap is under 0.01
 
 /** FNV-1a: a 32-bit hash of the text. */
 function fnv1a(text: string): number {
@@ -86,11 +89,6 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
     py[i] = (used.length > 1 ? ANCHOR_RY * Math.sin(turn) : 0) + (rand() * 2 - 1) * JITTER
   })
 
-  const startX = Float64Array.from(px)
-  const startY = Float64Array.from(py)
-
-  // The collision radius comes from the size bucket, never the exact size.
-  const radius = size.map((z) => footprintRadius(2 ** sizeBucket(z.codeLines)))
   const index = new Map(systems.map((s, i) => [s.id, i]))
   const trails = new Map<number, [number, number]>()
   systems.forEach((s, i) => {
@@ -99,18 +97,12 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
       if (j !== undefined && j !== i) trails.set(Math.min(i, j) * n + Math.max(i, j), [Math.min(i, j), Math.max(i, j)])
     }
   })
-
-  // A spring's strength is divided by the trail count of the end with fewer, so the many trails of a hub do not add up to a hard yank.
   const trailCount = new Float64Array(n)
   for (const [a, b] of trails.values()) {
     trailCount[a]++
     trailCount[b]++
   }
 
-  const clearance = (a: number, b: number) => {
-    const c = slot[a] === slot[b] ? CLEARANCE_SAME : CLEARANCE_OTHER
-    return c.scale * (radius[a] + radius[b]) + c.gap
-  }
   const pushX = new Float64Array(n)
   const pushY = new Float64Array(n)
   /**
@@ -119,7 +111,7 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
    * would decide the outcome, and a small change would reshuffle a crowd).
    * Returns the worst overlap met.
    */
-  const collide = () => {
+  const collide = (radius: Float64Array) => {
     let worst = 0
     pushX.fill(0)
     pushY.fill(0)
@@ -128,7 +120,8 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
         let vx = px[b] - px[a]
         let vy = py[b] - py[a]
         const d = Math.sqrt(vx * vx + vy * vy)
-        const need = clearance(a, b)
+        const c = slot[a] === slot[b] ? CLEARANCE_SAME : CLEARANCE_OTHER
+        const need = c.scale * (radius[a] + radius[b]) + c.gap
         if (d >= need) continue
         if (d > 1e-9) {
           vx /= d
@@ -153,30 +146,39 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
     }
     return worst
   }
+  /** Collision-only passes until the worst overlap is under 0.01 (or the passes run out). */
+  const settle = (radius: Float64Array) => {
+    for (let pass = 0; pass < SETTLE_PASSES; pass++) if (collide(radius) <= 0.01) break
+  }
 
+  // Phase 1: structure only. Every hill has the same collision radius, so nothing here depends on a size.
+  const same = new Float64Array(n).fill(PHASE1_RADIUS)
   const dx = new Float64Array(n)
   const dy = new Float64Array(n)
   const sumX = new Float64Array(used.length)
   const sumY = new Float64Array(used.length)
   const count = new Float64Array(used.length)
-  for (let step = 0; step < STEPS; step++) {
-    const alpha = 1 - step / STEPS
+  for (let step = 0; step < STEPS1; step++) {
+    const alpha = 1 - step / STEPS1
     dx.fill(0)
     dy.fill(0)
-    // Springs along each connected pair, longer between groups.
+    // Springs along each connected pair, longer between groups. A spring's strength is divided by the trail count of
+    // the end with fewer, and the end with fewer trails moves more, so a hub with many trails is not yanked about.
     for (const [a, b] of trails.values()) {
       const vx = px[b] - px[a]
       const vy = py[b] - py[a]
       const d = Math.sqrt(vx * vx + vy * vy)
       if (d < 1e-9) continue
-      const rest = radius[a] + radius[b] + (slot[a] === slot[b] ? REST_SAME : REST_OTHER)
-      const pull = (SPRING * alpha * (d - rest)) / d / 2 / Math.min(trailCount[a], trailCount[b])
-      dx[a] += vx * pull
-      dy[a] += vy * pull
-      dx[b] -= vx * pull
-      dy[b] -= vy * pull
+      const rest = same[a] + same[b] + (slot[a] === slot[b] ? REST_SAME : REST_OTHER)
+      const ta = trailCount[a]
+      const tb = trailCount[b]
+      const pull = (SPRING * alpha * (d - rest)) / d / Math.min(ta, tb)
+      dx[a] += (vx * pull * tb) / (ta + tb)
+      dy[a] += (vy * pull * tb) / (ta + tb)
+      dx[b] -= (vx * pull * ta) / (ta + tb)
+      dy[b] -= (vy * pull * ta) / (ta + tb)
     }
-    // Cohesion toward the group's centre, a weak pull toward the origin, and the tether to the starting place.
+    // Cohesion toward the group's centre, and a weak pull toward the origin.
     sumX.fill(0)
     sumY.fill(0)
     count.fill(0)
@@ -186,16 +188,36 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
       count[slot[i]]++
     }
     for (let i = 0; i < n; i++) {
-      dx[i] += (sumX[slot[i]] / count[slot[i]] - px[i]) * COHESION * alpha - px[i] * PULL * alpha + (startX[i] - px[i]) * TETHER
-      dy[i] += (sumY[slot[i]] / count[slot[i]] - py[i]) * COHESION * alpha - py[i] * PULL * alpha + (startY[i] - py[i]) * TETHER
+      dx[i] += (sumX[slot[i]] / count[slot[i]] - px[i]) * COHESION * alpha - px[i] * PULL * alpha
+      dy[i] += (sumY[slot[i]] / count[slot[i]] - py[i]) * COHESION * alpha - py[i] * PULL * alpha
     }
     for (let i = 0; i < n; i++) {
       px[i] += dx[i]
       py[i] += dy[i]
     }
-    collide()
+    collide(same)
   }
-  for (let pass = 0; pass < SETTLE_PASSES; pass++) if (collide() <= 0.01) break
+  settle(same)
+
+  // Phase 2: room by size. The collision radius comes from the size bucket, never the exact size. If the hills are
+  // bigger than phase 1's, the whole layout is first scaled up to match (by a bucket-based average, so one system
+  // crossing a bucket scales it only a little), and each hill is then tethered to its place.
+  const radius = Float64Array.from(size.map((z) => footprintRadius(2 ** sizeBucket(z.codeLines))))
+  const scale = Math.max(SCALE_MIN, Math.sqrt(radius.reduce((sum, r) => sum + r * r, 0) / Math.max(1, n)) / PHASE1_RADIUS)
+  for (let i = 0; i < n; i++) {
+    px[i] *= scale
+    py[i] *= scale
+  }
+  const homeX = Float64Array.from(px)
+  const homeY = Float64Array.from(py)
+  for (let step = 0; step < STEPS2; step++) {
+    for (let i = 0; i < n; i++) {
+      px[i] += (homeX[i] - px[i]) * TETHER
+      py[i] += (homeY[i] - py[i]) * TETHER
+    }
+    collide(radius)
+  }
+  settle(radius)
 
   const peak = Math.max(0, ...size.map((z) => Math.sqrt(z.branchPoints)))
   return systems.map((s, i) => ({

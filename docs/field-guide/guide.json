@@ -197,7 +197,7 @@
       "journey": [
         "The command counts files, jobs, models and checks and reads the commit",
         "It measures each system's code: non-blank code lines and branch points, leaving out prose, data, lockfiles, binaries and generated files",
-        "It lays the systems out as hills: positions come from groups and connections, sizes only in coarse buckets, so the map stays put as code changes",
+        "It lays the systems out as hills: first from groups and connections alone, then pushed apart to make room by coarse size bucket, so the map stays put as code changes",
         "It replaces the template's marker with the JSON",
         "A reader picks a system tile and its dossier opens beside the map"
       ],
@@ -219,7 +219,7 @@
         },
         {
           "path": "src/layout.ts",
-          "what": "Places each system's hill from its group and connections; only coarse size buckets move it, so the map stays put."
+          "what": "Lays out each system's hill: structure first (groups and connections), then room by coarse size bucket, so the map stays put."
         },
         {
           "path": "templates/guide.html",
@@ -250,7 +250,7 @@
       "watchOuts": [
         "Never load fonts or scripts from a CDN in the template, because the page must work offline and publish anywhere.",
         "Always keep the template's glob function identical to the CLI's, because the page's path search must agree with the lookup.",
-        "Never let a system's exact code lines move a hill in the layout, because only its size bucket may, and the map must stay put as code changes."
+        "Never let a system's exact code lines move a hill in the layout, because only its size bucket may make room around it, and the map must stay put as code changes."
       ]
     },
     {

@@ -456,6 +456,7 @@ t("a size change within a bucket moves nothing",
     b0 && b1 && b0.codeLines !== b1.codeLines && bucketOf(b0.codeLines) === bucketOf(b1.codeLines) && b1.footprint > b0.footprint &&
     before.hills.every((h, i) => within.hills[i].id === h.id && within.hills[i].x === h.x && within.hills[i].y === h.y),
   `${b0?.codeLines} -> ${b1?.codeLines} lines\n${JSON.stringify(before.hills)}\n${JSON.stringify(within.hills)}`)
+// Four hills only: the scale tests below carry the real check of stability.
 const moved = across.hills.length === before.hills.length ? Math.max(...before.hills.map((h, i) => gap(h, across.hills[i]))) : Infinity
 t("a size change across a bucket moves hills only a little",
   across.code === 0 && across.hills.length === 4 && b0 && b2 && bucketOf(b2.codeLines) > bucketOf(b0.codeLines) && moved <= 0.35 * diagonal(before.hills),
@@ -530,7 +531,8 @@ const growOne = (count, groups, every) => {
   return out
 }
 const scaleDetail = (r) => `worst ${r.worst.toFixed(3)} of the diagonal over ${r.trials} trials; ${r.bad.join("; ")}`
-// The bounds sit well above what the layout does (0.01 and 0.14) and well below what it did without its tether (0.19 and 0.36).
+// Measured on exactly these samples (every system on 13, every 5th on 60): this layout moves a hill at most 0.03 and 0.02 of the
+// diagonal; the first layout (no tether, one pair pushed after another) moved one 0.19 and 0.33, so the 60-system bound fails it.
 const small3 = growOne(13, 3, 1)
 t("one system growing a bucket moves hills only a little: 13 systems in 3 groups",
   small3.trials === 13 && small3.bad.length === 0 && small3.worst <= 0.1,
@@ -539,6 +541,52 @@ const big3 = growOne(60, 3, 5)
 t("one system growing a bucket moves hills only a little: 60 systems in 3 groups",
   big3.trials === 12 && big3.bad.length === 0 && big3.worst <= 0.25,
   scaleDetail(big3))
+
+// Structure: systems that connect sit nearer each other than the average pair. The links are seeded and random, but each goes
+// inside its group or to the group two places along, which the starting ellipse does not put next to it, so only the springs can honour
+// them (a layout that ignored its connections leaves linked pairs about as far apart as any pair, or further).
+const seeded = (seed) => () => {
+  seed = (seed + 0x6d2b79f5) | 0
+  let r = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+  r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r
+  return ((r ^ (r >>> 14)) >>> 0) / 4294967296
+}
+const linkedRatio = (count, groups, links, seed) => {
+  const rand = seeded(seed)
+  const groupOf = (i) => Math.floor((i * groups) / count)
+  const pairs = new Map()
+  while (pairs.size < links) {
+    const a = Math.floor(rand() * count)
+    const want = rand() < 0.25 ? groupOf(a) : (groupOf(a) + 2) % groups
+    const options = Array.from({ length: count }, (_, i) => i).filter((i) => groupOf(i) === want && i !== a)
+    if (!options.length) continue
+    const b = options[Math.floor(rand() * options.length)]
+    const key = `${Math.min(a, b)}-${Math.max(a, b)}`
+    if (!pairs.has(key)) pairs.set(key, [a, b])
+  }
+  const out = Array.from({ length: count }, () => [])
+  for (const [a, b] of pairs.values()) out[a].push(b)
+  const r = hillsOf(makeRepo({
+    guide: (g) => {
+      g.groups = Array.from({ length: groups }, (_, k) => ({ id: `g${k}`, name: `Group ${k}`, blurb: "x" }))
+      g.systems = out.map((to, i) => ({ ...sizeSystem(`s${i}`, `g${groupOf(i)}`, [genPath(i)]), connects: to.map((j) => ({ to: `s${j}`, why: "x" })) }))
+      delete g.flows
+    },
+    files: (f) => { for (let i = 0; i < count; i++) f[genPath(i)] = plainLines(40 + ((i * 173) % 1500)) },
+  }))
+  if (r.code !== 0 || r.hills.length !== count) return { ratio: NaN, detail: `exit ${r.code}, ${r.hills.length} hills ${r.out}` }
+  const mean = (xs) => xs.reduce((n, x) => n + x, 0) / xs.length
+  const all = r.hills.flatMap((h, i) => r.hills.slice(i + 1).map((k) => gap(h, k)))
+  const linked = [...pairs.values()].map(([a, b]) => gap(r.hills[a], r.hills[b]))
+  return { ratio: mean(linked) / mean(all), detail: `${linked.length} linked pairs` }
+}
+// This layout gives 0.67 and 0.56 (other seeds 0.53 to 0.70). The first layout gave 0.99 and 0.93, and the one with only a tether
+// (the springs had gone dead) 1.02 and 1.01. The bound is 0.85.
+const structured = [linkedRatio(13, 6, 32, 1), linkedRatio(30, 6, 70, 1)]
+t("systems that connect sit nearer each other than the average pair: 13 systems in 6 groups, 32 links",
+  structured[0].ratio <= 0.85, `linked / average distance ${structured[0].ratio.toFixed(3)} (${structured[0].detail})`)
+t("systems that connect sit nearer each other than the average pair: 30 systems in 6 groups, 70 links",
+  structured[1].ratio <= 0.85, `linked / average distance ${structured[1].ratio.toFixed(3)} (${structured[1].detail})`)
 
 // ---------------------------------------------------------------- 5. init and inventory
 console.log("\n--- 5. init and inventory ---")
