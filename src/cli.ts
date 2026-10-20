@@ -9,13 +9,18 @@
  *   guide overview              the about text, the overview and every flow
  *   guide check [--json]        coverage plus existence; exit 1 on any failure
  *   guide render [out.html]     the guide as one self-contained page
+ *   guide render --map-only [out.html]
+ *                               just the map, the route bar and the entry panel
+ *   guide render --guide <file.json> [--root <folder>] [--map-only] <out.html>
+ *                               a guide-shaped JSON with no guide.config.json
  *   guide init [--force]        vendor this CLI into ./docs/field-guide and write a config
  *   guide inventory [--unowned] the files on the map, by folder (or the unowned ones)
  *   guide changed [<commit>]    the systems whose files changed since a commit
  *   guide merge <file|folder ...>  fold draft or fact-check output into guide.json
  *   guide stamp                 record HEAD as the commit the guide was verified against
  *
- * Every command takes --dir <folder> (the folder holding guide.config.json).
+ * Every command takes --dir <folder> (the folder holding guide.config.json), except
+ * render --guide, which reads the named JSON and needs no config.
  */
 import { existsSync } from "fs"
 import { dirname, join } from "path"
@@ -24,7 +29,7 @@ import { CHECK_CODES, formatResults, runCheck } from "./check"
 import { init, inventory } from "./init"
 import { normalizePath, ownersOf, renderIndex, renderOverview, renderSystem, search } from "./lookup"
 import { changed, merge, stamp } from "./maintain"
-import { findGuideDir, loadGuide, loadContext, resolveArgPath, UsageError } from "./repo"
+import { findGuideDir, loadGuide, loadContext, outsideContext, resolveArgPath, UsageError, type Ctx } from "./repo"
 import { writePage } from "./render"
 import { SUBCOMMANDS, type Guide } from "./types"
 
@@ -41,12 +46,23 @@ function parse(argv: string[]) {
   const pos: string[] = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a === "--dir" || a === "--depth") flags.set(a.slice(2), argv[++i] ?? "")
+    if (a === "--dir" || a === "--depth" || a === "--guide" || a === "--root" || a === "--config") flags.set(a.slice(2), argv[++i] ?? "")
     else if (a === "-s") flags.set("search", true)
     else if (a.startsWith("--")) flags.set(a.slice(2), true)
     else pos.push(a)
   }
   return { flags, pos }
+}
+
+function flagValue(flags: Map<string, string | true>, name: string): string | undefined {
+  const v = flags.get(name)
+  return typeof v === "string" && v ? v : undefined
+}
+
+function render(ctx: Ctx, guide: Guide, out: string | undefined, mapOnly: boolean): number {
+  const path = writePage(ctx, guide, out, { mapOnly })
+  console.log(`Wrote ${path} (${guide.systems.length} systems). It does not validate the guide: run \`guide check\` first.`)
+  return 0
 }
 
 function main(argv: string[]): number {
@@ -70,6 +86,15 @@ function main(argv: string[]): number {
     }
   }
   const dirFlag = typeof flags.get("dir") === "string" ? (flags.get("dir") as string) : undefined
+  if (flags.has("guide")) {
+    // An outside guide has no config to find, so this branch comes before the context is loaded.
+    const file = flags.get("guide")
+    if (cmd !== "render") throw new UsageError("--guide goes with render only: guide render --guide <file.json> <out.html>")
+    if (typeof file !== "string" || !file) throw new UsageError("--guide needs the guide's JSON file: guide render --guide <file.json> <out.html>")
+    if (!pos[1]) throw new UsageError("guide render --guide <file.json> needs an output path, so nothing is written next to that guide by accident.")
+    const ctx = outsideContext(file, flagValue(flags, "root"), flagValue(flags, "config"))
+    return render(ctx, loadGuide(ctx), pos[1], flags.has("map-only"))
+  }
   if (cmd === "init") {
     console.log(init(dirFlag, flags.has("force")))
     return 0
@@ -96,11 +121,8 @@ function main(argv: string[]): number {
       else console.log(formatResults(results, `Field Guide check (guide ${VERSION}): ${normalizePath(ctx.guidePath.slice(ctx.root.length + 1))}, ${guide.systems?.length ?? 0} systems`))
       return failed ? 1 : 0
     }
-    case "render": {
-      const path = writePage(ctx, guide, pos[1])
-      console.log(`Wrote ${path} (${guide.systems.length} systems). It does not validate the guide: run \`guide check\` first.`)
-      return 0
-    }
+    case "render":
+      return render(ctx, guide, pos[1], flags.has("map-only"))
     case "merge":
       console.log(merge(ctx, guide, pos.slice(1), flags.has("dry-run")))
       return 0
@@ -182,6 +204,12 @@ const HELP = `Field Guide ${VERSION}: a plain-English map of every system in thi
   guide overview              the about text, the overview and every flow, step by step
   guide check [--json]        every file on the map, every name real; exit 1 on failure
   guide render [out.html]     one self-contained page (default: <guide folder>/guide.html)
+  guide render --map-only [out.html]
+                              just the map, the route bar and the entry panel
+  guide render --guide <file.json> [--root <folder>] [--map-only] <out.html>
+                              a guide-shaped JSON that has no guide.config.json; reads it, writes only
+                              <out.html>. The repo root defaults to the git top level of the JSON's folder;
+                              --config <file> supplies include, exclude and prose (a guide.config.json)
   guide init [--force]        vendor this CLI into ./docs/field-guide and detect a config
   guide inventory [--unowned] [--depth N]
                               the files on the map by folder, or the ones no system owns

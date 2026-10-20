@@ -589,6 +589,109 @@ t("systems that connect sit nearer each other than the average pair: 13 systems 
 t("systems that connect sit nearer each other than the average pair: 30 systems in 6 groups, 70 links",
   structured[1].ratio <= 0.85, `linked / average distance ${structured[1].ratio.toFixed(3)} (${structured[1].detail})`)
 
+// ---------------------------------------------------------------- 4d. render flags
+console.log("\n--- 4d. render flags ---")
+/** The CLI run by hand (no --dir), for the `--guide` forms that need no guide.config.json. */
+const runBare = (cwd, args) => {
+  const x = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8" })
+  return { code: x.status, out: `${x.stdout}${x.stderr}` }
+}
+const readPage = (path) => (existsSync(path) ? pageData(readFileSync(path, "utf8")) : {})
+const status = (dir) => git(dir, ["status", "--porcelain", "-uall"]).stdout.trim()
+
+const flagRepo = makeRepo()
+const mapOnlyRun = run(flagRepo, ["render", "--map-only", "out.html"])
+const plainRun = run(flagRepo, ["render", "plain.html"])
+const mapOnlyPage = readPage(join(flagRepo, "out.html"))
+const plainPage = readPage(join(flagRepo, "plain.html"))
+t("--map-only marks the page map-only",
+  mapOnlyRun.code === 0 && plainRun.code === 0 && mapOnlyPage.map?.mapOnly === true && plainPage.map?.mapOnly === false && mapOnlyPage.map.hills.length === 4,
+  `${mapOnlyRun.out}${plainRun.out}${JSON.stringify([mapOnlyPage.map?.mapOnly, plainPage.map?.mapOnly])}`)
+
+/** A committed repo with no guide folder of its own: the guide is `docs/atlas/atlas.json`, the way another tool keeps one. */
+const outsideRepo = (guide = baseGuide, move) => makeRepo({
+  commit: true,
+  files: (f) => {
+    for (const k of Object.keys(f)) if (k.startsWith("docs/field-guide/")) delete f[k]
+    f["docs/atlas/atlas.json"] = JSON.stringify(guide, null, 2)
+    move?.(f)
+  },
+})
+const outside = outsideRepo()
+const beforeRender = status(outside)
+const outsideRun = runBare(outside, ["render", "--guide", "docs/atlas/atlas.json", "--map-only", "docs/atlas/map.html"])
+const outsidePage = readPage(join(outside, "docs/atlas/map.html"))
+t("--guide renders an outside guide",
+  outsideRun.code === 0 && outsidePage.map?.hills.length === 4 && outsidePage.map.mapOnly === true && outsidePage.title === "Fixture Guide" &&
+    outsideRun.out.includes("does not validate the guide") && beforeRender === "" && status(outside) === "?? docs/atlas/map.html",
+  `${outsideRun.out}\nbefore: ${beforeRender}\nafter: ${status(outside)}`)
+
+const noOut = runBare(outside, ["render", "--guide", "docs/atlas/atlas.json", "--map-only"])
+t("--guide needs an output path, and writes nothing without one",
+  noOut.code === 2 && noOut.out.includes("guide render --guide <file.json> needs an output path, so nothing is written next to that guide by accident.") &&
+    !existsSync(join(outside, "docs/atlas/guide.html")) && status(outside) === "?? docs/atlas/map.html",
+  `${noOut.out}\n${status(outside)}`)
+
+const cfgDir = mkdtempSync(join(tmpdir(), "guide-cfg-"))
+temps.push(cfgDir)
+writeFileSync(join(cfgDir, "atlas.config.json"), JSON.stringify({ exclude: ["src/lib/**"] }))
+const codeOf = (dir, args, id) => {
+  const page = join(dir, "sized.html")
+  const x = runBare(dir, ["render", "--guide", "docs/atlas/atlas.json", ...args, page])
+  return { code: x.code, out: x.out, size: readPage(page).map?.hills.find((h) => h.id === id)?.codeLines }
+}
+const feesPlain = codeOf(outside, [], "fees-tax")
+const feesCfg = codeOf(outside, ["--config", join(cfgDir, "atlas.config.json")], "fees-tax")
+const ordersCfg = codeOf(outside, ["--config", join(cfgDir, "atlas.config.json")], "orders")
+// fees-tax owns src/lib/fees.ts (2 lines) and scripts/check-fees.js (1): the exclude takes the first only.
+t("--guide honours --config",
+  feesPlain.code === 0 && feesCfg.code === 0 && feesPlain.size === 3 && feesCfg.size === feesPlain.size - 2 && ordersCfg.size === codeOf(outside, [], "orders").size,
+  `${feesPlain.out}${feesCfg.out}fees-tax ${feesPlain.size} -> ${feesCfg.size}`)
+
+const bare = structuredClone(baseGuide)
+for (const s of bare.systems) for (const k of ["journey", "keyFiles", "jobs", "switches", "models", "rules", "checks", "watchOuts"]) delete s[k]
+const bareRepo = outsideRepo(bare)
+const bareRun = runBare(bareRepo, ["render", "--guide", "docs/atlas/atlas.json", "docs/atlas/map.html"])
+t("--guide works without the guide's other fields",
+  bareRun.code === 0 && readPage(join(bareRepo, "docs/atlas/map.html")).map?.hills.length === 4, bareRun.out)
+
+// The guide and the code sit in different places: everything under app/, the guide in app/docs/atlas/.
+const nested = outsideRepo(baseGuide, (f) => {
+  for (const k of Object.keys(f)) {
+    f[`app/${k}`] = f[k]
+    delete f[k]
+  }
+})
+const sizeIn = (args) => {
+  const x = runBare(nested, ["render", "--guide", "app/docs/atlas/atlas.json", ...args, "nested.html"])
+  return { code: x.code, out: x.out, size: readPage(join(nested, "nested.html")).map?.hills.find((h) => h.id === "fees-tax")?.codeLines }
+}
+const atGitRoot = sizeIn([])
+const atApp = sizeIn(["--root", join(nested, "app")])
+t("--root says where the guide's paths start (default: the git top level)",
+  atGitRoot.code === 0 && atGitRoot.size === 0 && atApp.code === 0 && atApp.size === 3, `${atGitRoot.out}${atApp.out}${atGitRoot.size} / ${atApp.size}`)
+
+// A guide at the root of the repo: its folder is the whole repo, so only the JSON itself stays off the map.
+const rootGuide = outsideRepo(baseGuide, (f) => {
+  f["atlas.json"] = f["docs/atlas/atlas.json"]
+  delete f["docs/atlas/atlas.json"]
+})
+const atRoot = runBare(rootGuide, ["render", "--guide", "atlas.json", "out.html"])
+const atRootPage = readPage(join(rootGuide, "out.html"))
+t("--guide renders a guide that sits in the root of the repo, with the code still on the map",
+  atRoot.code === 0 && atRootPage.map?.hills.find((h) => h.id === "fees-tax")?.codeLines === 3 && atRootPage.stats.source === "atlas.json", atRoot.out)
+
+const strayDir = mkdtempSync(join(tmpdir(), "guide-stray-"))
+temps.push(strayDir)
+writeFileSync(join(strayDir, "atlas.json"), JSON.stringify(baseGuide))
+const stray = runBare(outside, ["render", "--guide", join(strayDir, "atlas.json"), "--root", outside, join(strayDir, "out.html")])
+t("--guide refuses a guide that sits outside the root", stray.code === 2 && stray.out.includes("must be inside") && !existsSync(join(strayDir, "out.html")), stray.out)
+
+const refused = [["check", "--guide", "x.json"], ["orders", "--guide", "x.json"], ["--guide", "x.json"]].map((args) => runBare(outside, args))
+t("--guide is refused by other commands", refused.every((x) => x.code === 2 && x.out.includes("--guide goes with render only")), refused.map((x) => `${x.code} ${x.out}`).join("\n"))
+const noFile = runBare(outside, ["render", "out.html", "--guide"])
+t("--guide without a file is a usage error", noFile.code === 2 && noFile.out.includes("--guide needs the guide's JSON file"), noFile.out)
+
 // ---------------------------------------------------------------- 5. init and inventory
 console.log("\n--- 5. init and inventory ---")
 const fresh = makeRepo({ files: (f) => { for (const k of Object.keys(f)) if (k.startsWith("docs/field-guide/")) delete f[k] } })

@@ -1,8 +1,9 @@
 /**
- * `guide render [out.html]`: the guide as one self-contained web page (no
- * external requests: system fonts, inline script). Reads files and local git
- * (`rev-parse`, `check-attr`) only. It does not validate the guide; run
- * `guide check` first.
+ * `guide render [--map-only] [out.html]`, and `guide render --guide <file.json>
+ * <out.html>` for a guide with no guide.config.json: the guide as one
+ * self-contained web page (no external requests: system fonts, inline script).
+ * Reads files and local git (`rev-parse`, `check-attr`) only, and writes only
+ * the page. It does not validate the guide; run `guide check` first.
  */
 import { writeFileSync } from "fs"
 import { relative, resolve } from "path"
@@ -16,7 +17,12 @@ import template from "../templates/guide.html"
 
 export const MARKER = "/*GUIDE_DATA*/"
 
-export function renderPage(ctx: Ctx, guide: Guide): string {
+export type RenderOptions = {
+  /** Just the map, the route bar and the entry panel: the page switches the rest off. */
+  mapOnly?: boolean
+}
+
+export function renderPage(ctx: Ctx, guide: Guide, opts: RenderOptions = {}): string {
   if (template.split(MARKER).length !== 2) throw new Error(`the page template must contain ${MARKER} exactly once`)
   const files = universe(ctx, listRepoFiles(ctx.root, ctx.config.files))
   const stats = {
@@ -30,12 +36,12 @@ export function renderPage(ctx: Ctx, guide: Guide): string {
     source: normalizePath(relative(ctx.root, ctx.guidePath)),
   }
   // `<` is escaped so no string in the data can close the <script> element early.
-  const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)) } }).replace(/</g, "\\u003c")
+  const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)), mapOnly: !!opts.mapOnly } }).replace(/</g, "\\u003c")
   return template.replace(MARKER, () => json)
 }
 
-export function writePage(ctx: Ctx, guide: Guide, out?: string): string {
+export function writePage(ctx: Ctx, guide: Guide, out?: string, opts?: RenderOptions): string {
   const path = resolve(out ?? resolve(ctx.dir, "guide.html"))
-  writeFileSync(path, renderPage(ctx, guide))
+  writeFileSync(path, renderPage(ctx, guide, opts))
   return path
 }

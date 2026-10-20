@@ -5,7 +5,7 @@
  */
 import { execFileSync } from "child_process"
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs"
-import { dirname, isAbsolute, join, relative, resolve } from "path"
+import { basename, dirname, isAbsolute, join, relative, resolve } from "path"
 import { matchesAny, normalizePath } from "./lookup"
 import type { Guide, Config } from "./types"
 
@@ -96,6 +96,39 @@ export function loadContext(dir: string): Ctx {
   const own = new Set([repoRelative(root, guidePath), repoRelative(root, join(dir, CONFIG_FILE))].filter((p): p is string => !!p).map(fold))
   const prefix = fold(`${dirRel}/`)
   const isGuideFile = (p: string) => fold(p).startsWith(prefix) || own.has(fold(p))
+  return { dir, config, guidePath, root, dirRel, isGuideFile }
+}
+
+/**
+ * The context for a guide-shaped JSON that has no guide.config.json (`guide
+ * render --guide`). Paths in the guide start at `rootArg`, else at the git top
+ * level above the JSON. The config is the defaults, with the `files`, `include`,
+ * `exclude` and `prose` of `configFile` when one is given. The JSON's own folder
+ * is the guide folder, so its files stay out of the sizes (the JSON itself, only,
+ * when it sits in the root).
+ */
+export function outsideContext(guideFile: string, rootArg?: string, configFile?: string): Ctx {
+  const guidePath = resolve(guideFile)
+  const dir = dirname(guidePath)
+  const root = rootArg ? resolve(rootArg) : findGitRoot(dir)
+  if (!root) throw new UsageError(`No git repository found above ${dir}. Pass --root <folder> to say where the paths in the guide start.`)
+  const dirRel = normalizePath(relative(root, dir))
+  if (dirRel === ".." || dirRel.startsWith("../") || isAbsolute(dirRel)) {
+    throw new UsageError(`The guide's folder (${dir}) must be inside the repo root (${root}), which is where the paths in the guide start. Pass --root <folder> to change the root.`)
+  }
+  const raw = configFile ? readJson<Partial<Config>>(resolve(configFile)) : {}
+  const config: Config = {
+    ...DEFAULT_CONFIG,
+    guide: basename(guidePath),
+    root: normalizePath(relative(dir, root)) || ".",
+    files: raw.files ?? DEFAULT_CONFIG.files,
+    include: raw.include ?? DEFAULT_CONFIG.include,
+    exclude: raw.exclude ?? DEFAULT_CONFIG.exclude,
+    prose: raw.prose,
+  }
+  const own = new Set([repoRelative(root, guidePath), configFile && repoRelative(root, resolve(configFile))].filter((p): p is string => !!p).map(fold))
+  const prefix = dirRel ? fold(`${dirRel}/`) : undefined
+  const isGuideFile = (p: string) => (prefix !== undefined && fold(p).startsWith(prefix)) || own.has(fold(p))
   return { dir, config, guidePath, root, dirRel, isGuideFile }
 }
 

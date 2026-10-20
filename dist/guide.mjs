@@ -166,7 +166,7 @@ function search(guide, query) {
 // src/repo.ts
 import { execFileSync } from "child_process";
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
-import { dirname, isAbsolute, join, relative, resolve } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
 var CONFIG_FILE = "guide.config.json";
 var DEFAULT_DIR = "docs/field-guide";
 var DEFAULT_CONFIG = {
@@ -224,6 +224,30 @@ function loadContext(dir) {
   const own = new Set([repoRelative(root, guidePath), repoRelative(root, join(dir, CONFIG_FILE))].filter((p) => !!p).map(fold));
   const prefix = fold(`${dirRel}/`);
   const isGuideFile = (p) => fold(p).startsWith(prefix) || own.has(fold(p));
+  return { dir, config, guidePath, root, dirRel, isGuideFile };
+}
+function outsideContext(guideFile, rootArg, configFile) {
+  const guidePath = resolve(guideFile);
+  const dir = dirname(guidePath);
+  const root = rootArg ? resolve(rootArg) : findGitRoot(dir);
+  if (!root) throw new UsageError(`No git repository found above ${dir}. Pass --root <folder> to say where the paths in the guide start.`);
+  const dirRel = normalizePath(relative(root, dir));
+  if (dirRel === ".." || dirRel.startsWith("../") || isAbsolute(dirRel)) {
+    throw new UsageError(`The guide's folder (${dir}) must be inside the repo root (${root}), which is where the paths in the guide start. Pass --root <folder> to change the root.`);
+  }
+  const raw = configFile ? readJson(resolve(configFile)) : {};
+  const config = {
+    ...DEFAULT_CONFIG,
+    guide: basename(guidePath),
+    root: normalizePath(relative(dir, root)) || ".",
+    files: raw.files ?? DEFAULT_CONFIG.files,
+    include: raw.include ?? DEFAULT_CONFIG.include,
+    exclude: raw.exclude ?? DEFAULT_CONFIG.exclude,
+    prose: raw.prose
+  };
+  const own = new Set([repoRelative(root, guidePath), configFile && repoRelative(root, resolve(configFile))].filter((p) => !!p).map(fold));
+  const prefix = dirRel ? fold(`${dirRel}/`) : void 0;
+  const isGuideFile = (p) => prefix !== void 0 && fold(p).startsWith(prefix) || own.has(fold(p));
   return { dir, config, guidePath, root, dirRel, isGuideFile };
 }
 function readJson(path) {
@@ -1609,7 +1633,7 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
 
 // src/render.ts
 var MARKER = "/*GUIDE_DATA*/";
-function renderPage(ctx, guide) {
+function renderPage(ctx, guide, opts = {}) {
   if (guide_default.split(MARKER).length !== 2) throw new Error(`the page template must contain ${MARKER} exactly once`);
   const files = universe(ctx, listRepoFiles(ctx.root, ctx.config.files));
   const stats = {
@@ -1622,12 +1646,12 @@ function renderPage(ctx, guide) {
     generated: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
     source: normalizePath(relative4(ctx.root, ctx.guidePath))
   };
-  const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)) } }).replace(/</g, "\\u003c");
+  const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)), mapOnly: !!opts.mapOnly } }).replace(/</g, "\\u003c");
   return guide_default.replace(MARKER, () => json);
 }
-function writePage(ctx, guide, out) {
+function writePage(ctx, guide, out, opts) {
   const path = resolve3(out ?? resolve3(ctx.dir, "guide.html"));
-  writeFileSync3(path, renderPage(ctx, guide));
+  writeFileSync3(path, renderPage(ctx, guide, opts));
   return path;
 }
 
@@ -1649,12 +1673,21 @@ function parse(argv) {
   const pos = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--dir" || a === "--depth") flags.set(a.slice(2), argv[++i] ?? "");
+    if (a === "--dir" || a === "--depth" || a === "--guide" || a === "--root" || a === "--config") flags.set(a.slice(2), argv[++i] ?? "");
     else if (a === "-s") flags.set("search", true);
     else if (a.startsWith("--")) flags.set(a.slice(2), true);
     else pos.push(a);
   }
   return { flags, pos };
+}
+function flagValue(flags, name) {
+  const v = flags.get(name);
+  return typeof v === "string" && v ? v : void 0;
+}
+function render(ctx, guide, out, mapOnly) {
+  const path = writePage(ctx, guide, out, { mapOnly });
+  console.log(`Wrote ${path} (${guide.systems.length} systems). It does not validate the guide: run \`guide check\` first.`);
+  return 0;
 }
 function main(argv) {
   const { flags, pos } = parse(argv);
@@ -1676,6 +1709,14 @@ function main(argv) {
     }
   }
   const dirFlag = typeof flags.get("dir") === "string" ? flags.get("dir") : void 0;
+  if (flags.has("guide")) {
+    const file = flags.get("guide");
+    if (cmd !== "render") throw new UsageError("--guide goes with render only: guide render --guide <file.json> <out.html>");
+    if (typeof file !== "string" || !file) throw new UsageError("--guide needs the guide's JSON file: guide render --guide <file.json> <out.html>");
+    if (!pos[1]) throw new UsageError("guide render --guide <file.json> needs an output path, so nothing is written next to that guide by accident.");
+    const ctx2 = outsideContext(file, flagValue(flags, "root"), flagValue(flags, "config"));
+    return render(ctx2, loadGuide(ctx2), pos[1], flags.has("map-only"));
+  }
   if (cmd === "init") {
     console.log(init(dirFlag, flags.has("force")));
     return 0;
@@ -1700,11 +1741,8 @@ function main(argv) {
       else console.log(formatResults(results, `Field Guide check (guide ${VERSION}): ${normalizePath(ctx.guidePath.slice(ctx.root.length + 1))}, ${guide.systems?.length ?? 0} systems`));
       return failed ? 1 : 0;
     }
-    case "render": {
-      const path = writePage(ctx, guide, pos[1]);
-      console.log(`Wrote ${path} (${guide.systems.length} systems). It does not validate the guide: run \`guide check\` first.`);
-      return 0;
-    }
+    case "render":
+      return render(ctx, guide, pos[1], flags.has("map-only"));
     case "merge":
       console.log(merge(ctx, guide, pos.slice(1), flags.has("dry-run")));
       return 0;
@@ -1782,6 +1820,12 @@ var HELP = `Field Guide ${VERSION}: a plain-English map of every system in this 
   guide overview              the about text, the overview and every flow, step by step
   guide check [--json]        every file on the map, every name real; exit 1 on failure
   guide render [out.html]     one self-contained page (default: <guide folder>/guide.html)
+  guide render --map-only [out.html]
+                              just the map, the route bar and the entry panel
+  guide render --guide <file.json> [--root <folder>] [--map-only] <out.html>
+                              a guide-shaped JSON that has no guide.config.json; reads it, writes only
+                              <out.html>. The repo root defaults to the git top level of the JSON's folder;
+                              --config <file> supplies include, exclude and prose (a guide.config.json)
   guide init [--force]        vendor this CLI into ./docs/field-guide and detect a config
   guide inventory [--unowned] [--depth N]
                               the files on the map by folder, or the ones no system owns

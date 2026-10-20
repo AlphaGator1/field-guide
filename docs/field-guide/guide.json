@@ -73,10 +73,10 @@
       "group": "cli",
       "name": "Command line",
       "oneLiner": "Parses the arguments, finds the guide folder and runs the right command.",
-      "summary": "The entry point of dist/guide.mjs. It finds the folder holding guide.config.json (the --dir flag, then the script's own folder, then ./docs/field-guide), resolves the repo root, lists the repo's files with git, and dispatches to a subcommand or the lookup.",
+      "summary": "The entry point of dist/guide.mjs. It finds the folder holding guide.config.json (the --dir flag, then the script's own folder, then ./docs/field-guide), resolves the repo root, lists the repo's files with git, and dispatches to a subcommand or the lookup. `guide render --guide <file.json> <out.html>` is the one form that skips all that: it reads a guide-shaped JSON that has no guide.config.json, with the defaults (or the include, exclude and prose of a --config file) and the repo root from --root or the git top level above the JSON.",
       "journey": [
         "The vendored script starts and parses flags",
-        "It locates guide.config.json and the repo root",
+        "It locates guide.config.json and the repo root, unless render --guide names a JSON of its own",
         "A subcommand runs, or the lookup prints an entry",
         "A usage error exits 2; a failed check or an unmatched lookup exits 1"
       ],
@@ -104,6 +104,14 @@
         {
           "name": "--search",
           "what": "Searches every word, even when the first one is a command name."
+        },
+        {
+          "name": "--map-only",
+          "what": "With render, writes a page of just the map, the route bar and the entry panel."
+        },
+        {
+          "name": "--guide",
+          "what": "With render only, reads that guide-shaped JSON instead of one found through guide.config.json; --root and --config go with it, and an output path is required."
         }
       ],
       "connects": [
@@ -131,7 +139,8 @@
       "watchOuts": [
         "Never add a subcommand without adding it to SUBCOMMANDS, because a system with that id could then never be printed.",
         "Always list files through git ls-files with --others, because a new untracked file must fail the check before it is committed.",
-        "Never let a command accept stray words, because `guide stamp duty` would move the update baseline instead of searching."
+        "Never let a command accept stray words, because `guide stamp duty` would move the update baseline instead of searching.",
+        "Never let render --guide write to a default path, because it would put a page next to someone else's guide: it requires the output path."
       ]
     },
     {
@@ -193,7 +202,7 @@
       "group": "cli",
       "name": "Rendered page",
       "oneLiner": "Writes the guide as one self-contained, offline HTML page.",
-      "summary": "`guide render` injects the guide JSON, plus counts taken from the repo and a hill for each system (the size of its code, and its place on the trail map), into a neutral page template at a marker. The page uses system fonts and inline script only, so it makes no network request, and it escapes `<` so data cannot close the script element.",
+      "summary": "`guide render` injects the guide JSON, plus counts taken from the repo and a hill for each system (the size of its code, and its place on the trail map), into a neutral page template at a marker. `--map-only` sets a flag in that data for a page of just the map, the route bar and the entry panel, and `--guide <file.json> <out.html>` renders a guide-shaped JSON that has no guide.config.json, reading it and writing only the named file. The page uses system fonts and inline script only, so it makes no network request, and it escapes `<` so data cannot close the script element.",
       "journey": [
         "The command counts files, jobs, models and checks and reads the commit",
         "It measures each system's code: non-blank code lines and branch points, leaving out prose, data, lockfiles, binaries and generated files",
