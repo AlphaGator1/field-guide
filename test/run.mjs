@@ -692,6 +692,31 @@ t("--guide is refused by other commands", refused.every((x) => x.code === 2 && x
 const noFile = runBare(outside, ["render", "out.html", "--guide"])
 t("--guide without a file is a usage error", noFile.code === 2 && noFile.out.includes("--guide needs the guide's JSON file"), noFile.out)
 
+// ---------------------------------------------------------------- 4e. the page
+console.log("\n--- 4e. the page ---")
+// The map module is read from this repo (whichever CLI runs the suite), since a rule about its source has no other home.
+const mapUrl = new URL("../templates/map.html", import.meta.url)
+const mapSource = existsSync(mapUrl) ? readFileSync(mapUrl, "utf8") : ""
+const hostile = "<b>x</b></script>"
+const pageRepo = makeRepo({ guide: (a) => { sys(a, "orders").name = hostile } })
+const pageRun = run(pageRepo, ["render", "page.html"])
+const page = existsSync(join(pageRepo, "page.html")) ? readFileSync(join(pageRepo, "page.html"), "utf8") : ""
+const outsideData = page.replace(/<script type="application\/json"[\s\S]*?<\/script>/, "")
+t("the map module is inlined once",
+  pageRun.code === 0 && page.split("window.TrailMap").length === 2 && !page.includes("<!--TRAIL_MAP-->"),
+  `${pageRun.out}window.TrailMap ${page.split("window.TrailMap").length - 1} times, marker left: ${page.includes("<!--TRAIL_MAP-->")}`)
+const network = /(src|href)=["']https?:|\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|@import|url\(\s*["']?https?:/i
+t("the page still makes no network request",
+  outsideData.includes("window.TrailMap") && !network.test(outsideData) && mapSource.includes("window.TrailMap") && !network.test(mapSource),
+  `${outsideData.match(network)?.[0] ?? ""} ${mapSource.match(network)?.[0] ?? ""}`)
+// With the module inlined beside it, a name that tries to open a tag or close the script stays escaped in the data.
+t("hostile names stay escaped in the data",
+  page.includes("window.TrailMap") && page.includes("\\u003cb>x\\u003c/b>\\u003c/script>") && !page.includes(hostile) && !page.includes("<b>x</b>"),
+  page.match(/.{0,40}b>x.{0,40}/)?.[0])
+t("the module never writes data through innerHTML",
+  mapSource.includes("window.TrailMap") && !/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(mapSource),
+  mapSource ? mapSource.match(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/)?.[0] : "templates/map.html is missing")
+
 // ---------------------------------------------------------------- 5. init and inventory
 console.log("\n--- 5. init and inventory ---")
 const fresh = makeRepo({ files: (f) => { for (const k of Object.keys(f)) if (k.startsWith("docs/field-guide/")) delete f[k] } })

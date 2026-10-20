@@ -1365,6 +1365,16 @@ button { font: inherit; color: inherit; }
 
 .panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 28px; padding-block: 26px 10px; align-items: start; }
 @media (max-width: 1000px) { .panes { grid-template-columns: minmax(0, 1fr); } }
+.left { min-width: 0; }
+.views { display: inline-flex; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.views[hidden] { display: none; }
+.views button { background: var(--raised); border: 0; padding: 5px 16px; font-size: 0.86rem; color: var(--muted); cursor: pointer; }
+.views button + button { border-left: 1px solid var(--border); }
+.views button[aria-pressed="true"] { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+.legend { display: grid; gap: 6px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.legend h2 { font-size: 1.1rem; }
+.legend p { margin: 0; font-size: 0.9rem; }
+.legend .rule { color: var(--muted); font-size: 0.84rem; }
 .lane { display: grid; gap: 10px; margin-bottom: 22px; }
 .lane-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .lane-head h2 { font-size: 1.02rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
@@ -1459,7 +1469,11 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
 
 <main class="wrap">
   <div class="panes">
-    <div id="map"></div>
+    <div class="left">
+      <div class="views" id="views" role="group" aria-label="View"><button type="button" data-view="map" aria-pressed="false">Map</button><button type="button" data-view="list" aria-pressed="false">List</button></div>
+      <div id="trailmap" hidden></div>
+      <div id="map" hidden></div>
+    </div>
     <aside class="dossier" id="dossier" aria-live="polite"></aside>
   </div>
   <div class="lower">
@@ -1478,9 +1492,16 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
 </main>
 
 <script type="application/json" id="guide-data">/*GUIDE_DATA*/</script>
+<!--TRAIL_MAP-->
 <script>
 (function () {
   var A = JSON.parse(document.getElementById("guide-data").textContent);
+  // render does not validate the guide (and --guide reads guides the check never saw): a missing array is empty.
+  ["groups", "flows", "glossary"].forEach(function (k) { if (!Array.isArray(A[k])) A[k] = []; });
+  A.flows.forEach(function (f) { if (f && !Array.isArray(f.steps)) f.steps = []; });
+  A.systems.forEach(function (s) {
+    ["journey", "owns", "keyFiles", "models", "jobs", "switches", "connects", "rules", "checks", "watchOuts"].forEach(function (k) { if (!Array.isArray(s[k])) s[k] = []; });
+  });
   var KIND = { "github-action": "GitHub Action", "vercel-cron": "Vercel Cron", "package-script": "package script", "make-target": "make target", "file": "script", "external": "external" };
   var byId = {}, groupById = {}, laneById = {};
   A.systems.forEach(function (s) { byId[s.id] = s; });
@@ -1532,10 +1553,16 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
         return '<li><div><button type="button" data-go="' + esc(s2.system) + '">' + esc(s ? s.name : s2.system) + "</button><p>" + esc(s2.text) + "</p></div></li>";
       }).join("") + "</ol></div>";
     }).join("");
-    return '<div class="d-eyebrow" style="--lane:var(--accent)">Start here</div><h2>The big picture</h2>' +
+    return (view === "map" ? LEGEND : "") + '<div class="d-eyebrow" style="--lane:var(--accent)">Start here</div><h2>The big picture</h2>' +
       (A.overview ? '<p class="d-summary">' + esc(A.overview) + "</p>" : "") + '<div class="flows">' + flows + "</div>" +
-      '<p class="empty-note">Pick any tile to open that system. Its connected systems light up on the map.</p>';
+      '<p class="empty-note">' + (view === "map" ? "Pick any hill to open that system and light its trails." : "Pick any tile to open that system. The tiles it connects to light up.") + "</p>";
   }
+  var LEGEND = '<div class="legend"><h2>How to read the map</h2>' +
+    "<p><b>Hills are systems.</b> A hill's footprint grows with the lines of code the system owns, and its height (its contour rings) with the branch points in that code.</p>" +
+    '<p class="rule">Lines of code are non-blank lines in code files, leaving out prose, data, config, lockfiles and generated files. Branch points count if, elif, for, foreach, while, case, catch, except, when, match, &amp;&amp;, || and a spaced ?, comments and strings included.</p>' +
+    "<p><b>Regions are groups.</b> A group's hills share one landmass in its colour.</p>" +
+    "<p><b>Trails are connections.</b> Point at or pick a hill to light its trails, with arrows for the way each one runs; point at a trail to read why it exists.</p>" +
+    "<p><b>Routes are flows.</b> Pick a route above the map and a marker walks it, stop by stop.</p></div>";
 
   function dossier(s) {
     var g = groupById[s.group] || { id: s.group, name: s.group };
@@ -1566,7 +1593,7 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   var dos = document.getElementById("dossier");
   dos.addEventListener("click", function (e) { var b = e.target.closest("[data-go]"); if (b) select(b.getAttribute("data-go"), true); });
 
-  function select(id, scroll) {
+  function select(id, scroll, centre) {
     selected = byId[id] ? id : null;
     var s = selected ? byId[selected] : null;
     document.querySelectorAll(".tile").forEach(function (t) {
@@ -1580,6 +1607,7 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
     });
     dos.innerHTML = s ? dossier(s) : overview();
     dos.scrollTop = 0;
+    trail.select(selected, centre);
     try { history.replaceState(null, "", selected ? "#" + selected : location.pathname + location.search); } catch (e) {}
     if (scroll && s && window.matchMedia("(max-width: 1000px)").matches) dos.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -1599,7 +1627,7 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
       if (m && v) hits.push(s);
     });
     qs.textContent = !v ? "Pick a system to see how it works." : hits.length ? plural(hits.length, "system matches", "systems match") + (hits.length === 1 ? ": " + hits[0].name : "") : "No system matches. Try a file path from the repo root.";
-    if (hits.length === 1) select(hits[0].id, false);
+    if (hits.length === 1) select(hits[0].id, false, true);
   });
 
   var allJobs = [];
@@ -1623,6 +1651,34 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
   document.getElementById("foot").innerHTML = "<p>Generated from <code>" + esc(st.source || "guide.json") + "</code> at commit <code>" + esc(st.commit || "?") + "</code> on " + esc(st.generated || "?") + "." + v + "</p>" +
     "<p><code>guide check</code> fails when a file belongs to no system or a name the guide uses no longer exists. It does not verify the prose: when a system changes how it works, its entry is re-read by hand.</p>";
 
+  // The trail map and the tiles are two views of one selection. Map is the default on wide screens; a reader's choice
+  // is kept in this browser. A map-only page has just the map, the route bar and the panel.
+  var trailEl = document.getElementById("trailmap"), views = document.getElementById("views"), view = "map";
+  var trail = TrailMap.mount(trailEl, A, { onPick: function (id, quiet) { select(id, !quiet); } });
+  function show(v) {
+    view = v;
+    trailEl.hidden = v !== "map";
+    map.hidden = v !== "list";
+    views.querySelectorAll("[data-view]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-view") === v)); });
+    if (v === "map") trail.resize();
+  }
+  views.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-view]");
+    if (!b) return;
+    show(b.getAttribute("data-view"));
+    try { localStorage.setItem("field-guide-view", view); } catch (err) {}
+    if (!selected) dos.innerHTML = overview();
+  });
+  window.addEventListener("resize", function () { if (view === "map") trail.resize(); });
+  var saved = null;
+  try { saved = localStorage.getItem("field-guide-view"); } catch (err) {}
+  if (A.map && A.map.mapOnly) {
+    views.hidden = true;
+    document.getElementById("jobs-sec").hidden = true;
+    document.getElementById("gloss-sec").hidden = true;
+    show("map");
+  } else show(saved === "map" || saved === "list" ? saved : window.matchMedia("(min-width: 860px)").matches ? "map" : "list");
+
   var start = (location.hash || "").replace("#", "");
   select(byId[start] ? start : null, false);
 })();
@@ -1631,10 +1687,779 @@ td .sysbtn { background: none; border: 0; padding: 0; cursor: pointer; color: va
 </html>
 `;
 
+// templates/map.html
+var map_default = `<style>
+/* The trail map: the guide drawn as terrain (src/render.ts inlines this file into the page). Hills are systems,
+   regions are groups, trails are connections and routes are flows. Colours come from the page's tokens
+   (--g0..--g7 and the neutrals); the map adds its own paper, ink, trail and route colours here, light and dark. */
+.tm {
+  --tm-paper: #f5f2ea; --tm-ink: #2e2c27; --tm-trail: #6b5d4a; --tm-route: #d2462b; --tm-on-route: #ffffff; --tm-halo: #f5f2ea;
+  display: flex; flex-direction: column; height: clamp(420px, calc(100vh - 110px), 920px); min-width: 0;
+  background: var(--tm-paper); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .tm { --tm-paper: #171816; --tm-ink: #ecebe8; --tm-trail: #b9ab92; --tm-route: #ff7a59; --tm-on-route: #1c1c1a; --tm-halo: #171816; }
+}
+:root[data-theme="dark"] .tm { --tm-paper: #171816; --tm-ink: #ecebe8; --tm-trail: #b9ab92; --tm-route: #ff7a59; --tm-on-route: #1c1c1a; --tm-halo: #171816; }
+@media (max-width: 1000px) { .tm { height: clamp(360px, 72vh, 720px); } }
+.tm[hidden], .tm [hidden] { display: none !important; }
+.tm-bar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 9px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.tm-bar span { font-size: 0.82rem; color: var(--muted); margin-right: 2px; }
+.tm-bar button { font-size: 0.82rem; background: var(--raised); border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px; cursor: pointer; }
+.tm-bar button:hover { border-color: var(--muted); }
+.tm-bar button[aria-pressed="true"] { background: var(--tm-route); color: var(--tm-on-route); border-color: transparent; }
+.tm-area { position: relative; flex: 1; min-height: 0; }
+.tm-area:focus { outline: none; }
+.tm-area > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+.tm-area > svg.drag { cursor: grabbing; }
+.tm-hint { position: absolute; left: 10px; top: 8px; max-width: calc(100% - 70px); font-size: 0.75rem; color: var(--muted); background: color-mix(in oklab, var(--tm-paper) 85%, transparent); padding: 1px 6px; border-radius: 6px; pointer-events: none; }
+.tm-zoom { position: absolute; right: 10px; top: 8px; display: grid; gap: 4px; }
+.tm-zoom button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--raised); font-size: 16px; line-height: 1; cursor: pointer; }
+.tm-tip { position: absolute; z-index: 2; pointer-events: none; max-width: min(340px, calc(100% - 16px)); background: var(--raised); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 0.82rem; line-height: 1.4; box-shadow: 0 6px 20px rgb(0 0 0 / 0.12); }
+.tm-tip p { margin: 0 0 4px; }
+.tm-tip p:last-child { margin: 0; }
+.tm-cap { position: absolute; left: 10px; right: 10px; bottom: 10px; max-width: 560px; background: var(--raised); border: 1px solid var(--border); border-left: 4px solid var(--tm-route); border-radius: 10px; padding: 8px 12px 10px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.12); }
+.tm-cap-top { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--muted); }
+.tm-cap-top span { flex: 1; min-width: 0; }
+.tm-cap-top button { min-width: 30px; height: 26px; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; cursor: pointer; }
+.tm-cap-sys { font-weight: 650; margin-top: 2px; }
+.tm-cap-text { font-size: 0.9rem; }
+.tm-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--muted); }
+
+.tm .land { fill: var(--c); fill-opacity: 0.1; stroke: var(--c); stroke-opacity: 0.5; stroke-width: 1.2; fill-rule: evenodd; vector-effect: non-scaling-stroke; }
+.tm .ring { fill: var(--c); fill-opacity: 0.055; stroke: var(--c); stroke-opacity: 0.42; stroke-width: 0.8; fill-rule: evenodd; vector-effect: non-scaling-stroke; }
+.tm .ring.index { stroke-opacity: 0.8; stroke-width: 1.3; }
+.tm .trail { fill: none; stroke: var(--tm-trail); stroke-width: 1.3; stroke-dasharray: 5 5; opacity: 0.6; vector-effect: non-scaling-stroke; transition: opacity 0.2s; }
+.tm .trail.on { stroke: var(--tm-ink); stroke-dasharray: none; stroke-width: 2.4; opacity: 0.9; }
+.tm .hit { fill: none; stroke: transparent; stroke-width: 14; vector-effect: non-scaling-stroke; pointer-events: stroke; }
+.tm .arrow { fill: var(--tm-ink); opacity: 0; transition: opacity 0.2s; }
+.tm .arrow.on { opacity: 1; }
+.tm .tm-names, .tm .tm-route, .tm .tm-badges, .tm .tm-walker, .tm .arrow { pointer-events: none; }
+.tm .name text { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; fill: var(--c); paint-order: stroke; stroke: var(--tm-halo); stroke-width: 4px; stroke-linejoin: round; }
+.tm .hill { cursor: pointer; transition: opacity 0.2s; }
+.tm .hill:focus, .tm .hill:focus-visible { outline: none; }
+.tm .hill .pad { fill: transparent; }
+.tm .hill:focus-visible .pad { stroke: var(--accent); stroke-width: 2; }
+.tm .tri { fill: var(--c); stroke: var(--tm-halo); stroke-width: 1.5; }
+.tm .flat { fill: var(--tm-paper); stroke: var(--c); stroke-width: 2; }
+.tm .lbl { font-size: 13px; font-weight: 650; fill: var(--tm-ink); paint-order: stroke; stroke: var(--tm-halo); stroke-width: 4px; stroke-linejoin: round; }
+.tm .sub { font-size: 11px; fill: var(--muted); paint-order: stroke; stroke: var(--tm-halo); stroke-width: 4px; stroke-linejoin: round; }
+.tm .hill.sel .tri, .tm .hill.sel .flat { stroke: var(--tm-ink); stroke-width: 2.5; }
+.tm .hill.here .tri, .tm .hill.here .flat { stroke: var(--tm-route); stroke-width: 3; }
+.tm svg.focus .trail:not(.on) { opacity: 0.08; }
+.tm svg.focus .hill:not(.on):not(.near) { opacity: 0.3; }
+.tm svg.routing .trail { opacity: 0.12; }
+.tm svg.routing .hill:not(.onroute) { opacity: 0.3; }
+.tm .route { fill: none; stroke: var(--tm-route); stroke-width: 3.4; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.tm .casing { fill: none; stroke: var(--tm-halo); stroke-width: 7; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.tm .badge circle { fill: var(--tm-route); stroke: var(--tm-halo); stroke-width: 2; }
+.tm .badge text { fill: var(--tm-on-route); font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+.tm .badge.past circle { opacity: 0.55; }
+.tm .walker .dot { fill: var(--tm-route); stroke: var(--tm-halo); stroke-width: 2.5; }
+.tm .walker .pulse { fill: none; stroke: var(--tm-route); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: tm-pulse 1.4s ease-out infinite; }
+@keyframes tm-pulse { from { opacity: 0.8; transform: scale(1); } to { opacity: 0; transform: scale(2.6); } }
+@media (prefers-reduced-motion: reduce) { .tm .walker .pulse { animation: none; opacity: 0; } }
+</style>
+<script>
+/* TrailMap.mount(container, data, hooks) draws the page data (a guide plus map.hills) into an empty container and
+   returns { select: function (id, centre), resize: function () }. It touches the page only through the container
+   and the hooks: hooks.onPick(id) fires when a reader picks a hill (null: the empty map), and hooks.onPick(id, true)
+   when a route arrives at a stop; the page then selects that system and calls select(id), which focuses the hill
+   (and with centre, pans to it) without calling back. Call resize() when the container is shown or changes size:
+   nothing is drawn while it has no size. Every string from the data goes in through textContent, never as markup. */
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  var RINGS = 9; // the tallest hill gets about this many contour rings
+  var LAND = 0.05; // a region's outline: this level of its unit-height footprint field
+  var CELLS = 320; // grid cells along the longer side of the map
+  var WALK = 0.32; // a route marker's speed in screen pixels per ms; each leg takes 500 to 2000 ms
+
+  function el(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    for (var a in attrs) e.setAttribute(a, attrs[a]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function box(tag, cls, parent, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function str(v) { return v == null ? "" : String(v); }
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function fmt(n) { return String(Math.round(n)).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ","); }
+  function lines(n) { return fmt(n) + (n === 1 ? " line" : " lines"); }
+  function hash(s) { var h = 7; for (var i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) % 2147483647; return h; }
+  function overlaps(b, list) {
+    for (var i = 0; i < list.length; i++) { var o = list[i]; if (b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0) return true; }
+    return false;
+  }
+  // A trail's curve: a quadratic through the control point, which bows to a side picked from the pair's ids.
+  function bend(p, q) {
+    if (q.id < p.id) { var s = p; p = q; q = s; }
+    var dx = q.x - p.x, dy = q.y - p.y, d = Math.sqrt(dx * dx + dy * dy) || 1, off = d * 0.14 * (hash(p.id + "\\n" + q.id) % 2 ? 1 : -1);
+    return { x: (p.x + q.x) / 2 - (dy / d) * off, y: (p.y + q.y) / 2 + (dx / d) * off };
+  }
+  function at(p, c, q, t) { var u = 1 - t; return { x: u * u * p.x + 2 * u * t * c.x + t * t * q.x, y: u * u * p.y + 2 * u * t * c.y + t * t * q.y }; }
+  function curve(p, c, q) { return "M" + p.x.toFixed(1) + "," + p.y.toFixed(1) + "Q" + c.x.toFixed(1) + "," + c.y.toFixed(1) + " " + q.x.toFixed(1) + "," + q.y.toFixed(1); }
+
+  // A height field on a grid; the two edge tables let contour() chain segments without allocating per level.
+  function grid(x0, y0, x1, y1, step) {
+    var nx = Math.ceil((x1 - x0) / step) + 3, ny = Math.ceil((y1 - y0) / step) + 3;
+    return { nx: nx, ny: ny, ox: x0 - step, oy: y0 - step, step: step, v: new Float32Array(nx * ny), e1: new Int32Array(2 * nx * ny), e2: new Int32Array(2 * nx * ny) };
+  }
+  function twin(f) { return { nx: f.nx, ny: f.ny, ox: f.ox, oy: f.oy, step: f.step, v: new Float32Array(f.nx * f.ny), e1: f.e1, e2: f.e2 }; }
+  // Adds a Gaussian (separable, cut off at 3.6 sigma, where it is below 0.002 of its peak).
+  function splat(f, x, y, sigma, peak) {
+    var reach = sigma * 3.6, two = 2 * sigma * sigma, i, j;
+    var i0 = Math.max(0, Math.floor((x - reach - f.ox) / f.step)), i1 = Math.min(f.nx - 1, Math.ceil((x + reach - f.ox) / f.step));
+    var j0 = Math.max(0, Math.floor((y - reach - f.oy) / f.step)), j1 = Math.min(f.ny - 1, Math.ceil((y + reach - f.oy) / f.step));
+    var gx = new Float32Array(i1 - i0 + 1);
+    for (i = i0; i <= i1; i++) { var dx = f.ox + i * f.step - x; gx[i - i0] = Math.exp(-(dx * dx) / two); }
+    for (j = j0; j <= j1; j++) {
+      var dy = f.oy + j * f.step - y, gy = peak * Math.exp(-(dy * dy) / two), row = j * f.nx;
+      for (i = i0; i <= i1; i++) f.v[row + i] += gy * gx[i - i0];
+    }
+  }
+  // Land is solid: low ground that the open ground around the region cannot reach is raised above the level, so a region
+  // has no holes (its rings keep their valleys).
+  function solid(f, level) {
+    var v = f.v, nx = f.nx, ny = f.ny, open = new Uint8Array(nx * ny), stack = [], p;
+    for (p = 0; p < nx; p++) stack.push(p, (ny - 1) * nx + p);
+    for (p = 0; p < ny; p++) stack.push(p * nx, p * nx + nx - 1);
+    while (stack.length) {
+      p = stack.pop();
+      if (open[p] || v[p] > level) continue;
+      open[p] = 1;
+      if (p % nx > 0) stack.push(p - 1);
+      if (p % nx < nx - 1) stack.push(p + 1);
+      if (p >= nx) stack.push(p - nx);
+      if (p < nx * (ny - 1)) stack.push(p + nx);
+    }
+    for (p = 0; p < v.length; p++) if (!open[p] && v[p] <= level) v[p] = 2 * level;
+  }
+  // Marching squares at one level: segments are chained into closed loops by the grid edge they cross (saddle cells
+  // use the centre value). Edge 2*o is the horizontal edge right of grid point o, 2*o+1 the vertical edge below it.
+  // Returns the loops as one SVG path, and widens ext by every point.
+  function contour(f, level, ext) {
+    var v = f.v, nx = f.nx, ny = f.ny, e1 = f.e1, e2 = f.e2, sa = [], sb = [], i, j, s;
+    function seg(p, q) { sa.push(p); sb.push(q); }
+    for (j = 0; j < ny - 1; j++) {
+      for (i = 0; i < nx - 1; i++) {
+        var o = j * nx + i, a = v[o], b = v[o + 1], c = v[o + nx + 1], d = v[o + nx];
+        var idx = (a > level ? 8 : 0) | (b > level ? 4 : 0) | (c > level ? 2 : 0) | (d > level ? 1 : 0);
+        if (idx === 0 || idx === 15) continue;
+        var T = 2 * o, R = 2 * (o + 1) + 1, B = 2 * (o + nx), L = 2 * o + 1, mid = (a + b + c + d) / 4 > level;
+        switch (idx) {
+          case 1: case 14: seg(L, B); break;
+          case 2: case 13: seg(B, R); break;
+          case 3: case 12: seg(L, R); break;
+          case 4: case 11: seg(T, R); break;
+          case 6: case 9: seg(T, B); break;
+          case 7: case 8: seg(T, L); break;
+          case 5: if (mid) { seg(T, L); seg(B, R); } else { seg(T, R); seg(L, B); } break;
+          case 10: if (mid) { seg(T, R); seg(L, B); } else { seg(T, L); seg(B, R); } break;
+        }
+      }
+    }
+    function link(e, n) { if (e1[e]) e2[e] = n + 1; else e1[e] = n + 1; }
+    function point(e) {
+      var o = e >> 1, gi = o % nx, gj = (o - gi) / nx, a = v[o], x = gi, y = gj;
+      if (e & 1) y += (level - a) / (v[o + nx] - a); else x += (level - a) / (v[o + 1] - a);
+      x = f.ox + x * f.step;
+      y = f.oy + y * f.step;
+      if (x < ext.x0) ext.x0 = x;
+      if (x > ext.x1) ext.x1 = x;
+      if (y < ext.y0) ext.y0 = y;
+      if (y > ext.y1) ext.y1 = y;
+      return x.toFixed(1) + "," + y.toFixed(1);
+    }
+    var n = sa.length, used = new Uint8Array(n), path = "";
+    for (s = 0; s < n; s++) { link(sa[s], s); link(sb[s], s); }
+    for (s = 0; s < n; s++) {
+      if (used[s]) continue;
+      used[s] = 1;
+      var start = sa[s], cur = sb[s], pts = [point(start), point(cur)];
+      for (;;) {
+        var m1 = e1[cur] - 1, m2 = e2[cur] - 1, next = m1 >= 0 && !used[m1] ? m1 : m2 >= 0 && !used[m2] ? m2 : -1;
+        if (next < 0) break;
+        used[next] = 1;
+        cur = sa[next] === cur ? sb[next] : sa[next];
+        if (cur === start) break;
+        pts.push(point(cur));
+      }
+      path += "M" + pts.join("L") + "Z";
+    }
+    for (s = 0; s < n; s++) { e1[sa[s]] = e2[sa[s]] = e1[sb[s]] = e2[sb[s]] = 0; }
+    return path;
+  }
+
+  function mount(container, data, hooks) {
+    hooks = hooks || {};
+    var groups = Array.isArray(data.groups) ? data.groups : [];
+    var systems = Array.isArray(data.systems) ? data.systems : [];
+    var given = data.map && Array.isArray(data.map.hills) ? data.map.hills : [];
+    var sys = Object.create(null), rank = Object.create(null), gname = Object.create(null);
+    systems.forEach(function (s) { if (s && !(s.id in sys)) sys[s.id] = s; });
+    groups.forEach(function (g, i) { if (g && !(g.id in rank)) { rank[g.id] = i; gname[g.id] = str(g.name || g.id); } });
+
+    // Hills in guide order; a hill whose group the guide does not declare joins the fallback region.
+    var hills = [], byId = Object.create(null);
+    given.forEach(function (h) {
+      if (!h || typeof h.id !== "string" || h.id in byId || !isFinite(h.x) || !isFinite(h.y)) return;
+      var s = sys[h.id] || {};
+      var o = { id: h.id, i: hills.length, name: str(s.name || h.id), g: h.group in rank ? h.group : "", lx: +h.x, ly: +h.y,
+        r: Math.max(4, +h.footprint || 16), z: clamp(+h.height || 0, 0, 1), lines: Math.max(0, +h.codeLines || 0), links: [] };
+      hills.push(o);
+      byId[o.id] = o;
+    });
+    var regions = [], regionOf = Object.create(null);
+    hills.forEach(function (h) {
+      var rg = regionOf[h.g];
+      if (!rg) {
+        rg = regionOf[h.g] = { name: h.g ? gname[h.g] : "Other systems", c: h.g ? "var(--g" + (rank[h.g] % 8) + ")" : "var(--g7)", order: h.g ? rank[h.g] : 1e9, hills: [] };
+        regions.push(rg);
+      }
+      rg.hills.push(h);
+    });
+    regions.sort(function (a, b) { return a.order - b.order; });
+
+    // One trail per connected pair (a before b by id); each direction keeps its own "why". Unknown targets are skipped.
+    var trails = [], pairs = Object.create(null);
+    hills.forEach(function (h) {
+      var links = Array.isArray((sys[h.id] || {}).connects) ? sys[h.id].connects : [];
+      links.forEach(function (c) {
+        var o = c ? byId[c.to] : null;
+        if (!o || o === h) return;
+        var a = h.id < o.id ? h : o, b = a === h ? o : h, key = JSON.stringify([a.id, b.id]), t = pairs[key];
+        if (!t) { t = pairs[key] = { a: a, b: b, ab: null, ba: null, arrows: [] }; trails.push(t); a.links.push(t); b.links.push(t); }
+        if (h === a) { if (t.ab === null) t.ab = str(c.why); } else if (t.ba === null) t.ba = str(c.why);
+      });
+    });
+    // A route needs every stop on the map.
+    var flows = (Array.isArray(data.flows) ? data.flows : []).filter(function (f) {
+      return f && Array.isArray(f.steps) && f.steps.length > 0 && f.steps.every(function (st) { return st && typeof st.system === "string" && byId[st.system]; });
+    });
+
+    container.classList.add("tm");
+    var routeButtons = [];
+    if (flows.length) {
+      var bar = box("div", "tm-bar", container);
+      bar.setAttribute("role", "group");
+      bar.setAttribute("aria-label", "Routes");
+      box("span", "", bar, "Walk a route:");
+      flows.forEach(function (f, i) {
+        var b = box("button", "", bar, str(f.name) || "Route " + (i + 1));
+        b.type = "button";
+        b.setAttribute("aria-pressed", "false");
+        b.addEventListener("click", function () { if (route && route.i === i) leaveRoute(); else startRoute(i); });
+        routeButtons.push(b);
+      });
+    }
+    var area = box("div", "tm-area", container);
+    area.tabIndex = -1;
+    if (!hills.length) {
+      box("p", "tm-empty", area, "This guide has no systems to map.");
+      return { select: function () {}, resize: function () {} };
+    }
+    var svg = el("svg", { role: "group", "aria-label": "Trail map: hills are systems, trails are connections" }, area);
+    var hint = box("div", "tm-hint", area, "Drag to pan \xB7 scroll or pinch to zoom \xB7 pick a hill");
+    var zoom = box("div", "tm-zoom", area);
+    function button(parent, text, label, act) {
+      var b = box("button", "", parent, text);
+      b.type = "button";
+      b.setAttribute("aria-label", label);
+      b.title = label;
+      b.addEventListener("click", act);
+      return b;
+    }
+    button(zoom, "+", "Zoom in", function () { zoomAt(0.75, W / 2, H / 2); });
+    button(zoom, "\u2212", "Zoom out", function () { zoomAt(1 / 0.75, W / 2, H / 2); });
+    button(zoom, "\u2922", "Fit the map", function () { fit(); });
+    var tip = box("div", "tm-tip", area);
+    tip.hidden = true;
+    var cap = box("div", "tm-cap", area);
+    cap.hidden = true;
+    var capTop = box("div", "tm-cap-top", cap), capStep = box("span", "", capTop);
+    button(capTop, "\u2039", "Previous stop", function () { step(-1); });
+    var cPlay = button(capTop, "\u275A\u275A", "Pause", togglePlay);
+    button(capTop, "\u203A", "Next stop", function () { step(1); });
+    button(capTop, "\xD7", "Leave the route", function () { leaveRoute(); });
+    var capSys = box("div", "tm-cap-sys", cap), capText = box("div", "tm-cap-text", cap);
+
+    var world = el("g", {}, svg), L = {};
+    ["land", "rings", "trails", "names", "route", "hits", "hills", "badges", "walker"].forEach(function (name) {
+      L[name] = el("g", { "class": "tm-" + name }, world);
+      if (name !== "hills") L[name].setAttribute("aria-hidden", "true");
+    });
+
+    var W = 0, H = 0, k = 1, view = null, fitK = 1, moved = false, built = false, turned = false;
+    var scalables = [], selected = null, hovered = null, keyed = null, route = null;
+    // The layout's own extent, before any turn: it decides whether the map is turned to fit the area's shape.
+    var lay = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    hills.forEach(function (h) {
+      lay.x0 = Math.min(lay.x0, h.lx - h.r); lay.x1 = Math.max(lay.x1, h.lx + h.r);
+      lay.y0 = Math.min(lay.y0, h.ly - h.r); lay.y1 = Math.max(lay.y1, h.ly + h.r);
+    });
+    function wantsTurn(w, h) {
+      var lw = lay.x1 - lay.x0, lh = lay.y1 - lay.y0;
+      return (h > w * 1.1 && lw > lh) || (w > h * 1.1 && lh > lw);
+    }
+
+    // Labels, markers, badges and arrows keep their screen size: each sits in a group scaled by k (world units per pixel).
+    function scalable(g, x, y, rot) { var s = { g: g, x: x, y: y, rot: rot }; scalables.push(s); return s; }
+    function place(s) {
+      s.g.setAttribute("transform", "translate(" + s.x.toFixed(2) + "," + s.y.toFixed(2) + ")" + (s.rot != null ? " rotate(" + s.rot.toFixed(1) + ")" : "") + " scale(" + k.toPrecision(6) + ")");
+    }
+
+    function build() {
+      ["land", "rings", "trails", "names", "hits", "hills"].forEach(function (name) { clear(L[name]); });
+      scalables = [];
+      hills.forEach(function (h) { h.x = turned ? -h.ly : h.lx; h.y = turned ? h.lx : h.ly; });
+      drawTerrain();
+      drawTrails();
+      drawNames();
+      drawHills();
+      built = true;
+    }
+
+    // Per region: a height field (each hill a Gaussian of spread half its footprint, peak its height) contoured at
+    // steps of a ninth of the tallest hill, and a unit-height footprint field whose low level outlines the land.
+    function drawTerrain() {
+      var top = 0, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      hills.forEach(function (h) { top = Math.max(top, h.z); x0 = Math.min(x0, h.x - h.r); x1 = Math.max(x1, h.x + h.r); y0 = Math.min(y0, h.y - h.r); y1 = Math.max(y1, h.y + h.r); });
+      var stepSize = Math.max(x1 - x0, y1 - y0) / CELLS;
+      regions.forEach(function (rg) {
+        var bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+        rg.hills.forEach(function (h) { var reach = h.r * 1.8; bx0 = Math.min(bx0, h.x - reach); bx1 = Math.max(bx1, h.x + reach); by0 = Math.min(by0, h.y - reach); by1 = Math.max(by1, h.y + reach); });
+        var land = grid(bx0, by0, bx1, by1, stepSize), high = twin(land), peak = 0;
+        rg.hills.forEach(function (h) { splat(land, h.x, h.y, h.r / 2, 1); if (h.lines > 0 && h.z > 0) splat(high, h.x, h.y, h.r / 2, h.z); });
+        solid(land, LAND);
+        for (var p = 0; p < high.v.length; p++) if (high.v[p] > peak) peak = high.v[p];
+        rg.ext = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+        var gl = el("g", {}, L.land), gr = el("g", {}, L.rings);
+        gl.style.setProperty("--c", rg.c);
+        gr.style.setProperty("--c", rg.c);
+        el("path", { "class": "land", d: contour(land, LAND, rg.ext) }, gl);
+        var ignore = { x0: 0, y0: 0, x1: 0, y1: 0 };
+        for (var n = 1; top > 0 && (n * top) / RINGS < peak; n++) el("path", { "class": n % 4 ? "ring" : "ring index", d: contour(high, (n * top) / RINGS, ignore) }, gr);
+      });
+    }
+
+    function drawTrails() {
+      trails.forEach(function (t, n) {
+        t.c = bend(t.a, t.b);
+        var d = curve(t.a, t.c, t.b);
+        t.el = el("path", { "class": "trail", d: d }, L.trails);
+        el("path", { "class": "hit", d: d, "data-t": n }, L.hits);
+        t.arrows = [];
+        var dirs = t.ab !== null && t.ba !== null ? [[0.42, 0], [0.58, 180]] : [[0.5, t.ab !== null ? 0 : 180]];
+        dirs.forEach(function (dir) {
+          var s = dir[0], p = at(t.a, t.c, t.b, s), tx = 2 * (1 - s) * (t.c.x - t.a.x) + 2 * s * (t.b.x - t.c.x), ty = 2 * (1 - s) * (t.c.y - t.a.y) + 2 * s * (t.b.y - t.c.y);
+          var g = el("g", { "class": "arrow" }, L.trails);
+          el("path", { d: "M-6,-5L6,0L-6,5Z" }, g);
+          t.arrows.push(scalable(g, p.x, p.y, (Math.atan2(ty, tx) * 180) / Math.PI + dir[1]));
+        });
+      });
+    }
+
+    function drawNames() {
+      regions.forEach(function (rg) {
+        var g = el("g", { "class": "name" }, L.names);
+        g.style.setProperty("--c", rg.c);
+        rg.text = el("text", { "text-anchor": "middle" }, g);
+        rg.text.textContent = rg.name;
+        rg.s = scalable(g, 0, 0);
+      });
+      regions.forEach(function (rg) { rg.bb = rg.text.getBBox(); });
+    }
+
+    // Hills go into the DOM by region, so the tab order follows the groups.
+    function drawHills() {
+      hills.slice().sort(function (a, b) { return regionOf[a.g].order - regionOf[b.g].order || a.i - b.i; }).forEach(function (h) {
+        var g = el("g", { "class": "hill", tabindex: "0", role: "button", "data-i": h.i, "aria-label": h.name + ", " + lines(h.lines) + " of code" }, L.hills);
+        g.style.setProperty("--c", regionOf[h.g].c);
+        el("circle", { "class": "pad", r: 14 }, g);
+        if (h.lines > 0) el("path", { "class": "tri", d: "M0,-8L7,5L-7,5Z" }, g);
+        else el("circle", { "class": "flat", r: 5 }, g);
+        h.label = el("g", {}, g);
+        el("text", { "class": "lbl", y: 21, "text-anchor": "middle" }, h.label).textContent = h.name;
+        el("text", { "class": "sub", y: 35, "text-anchor": "middle" }, h.label).textContent = h.lines > 0 ? lines(h.lines) : "no code";
+        h.el = g;
+        h.s = scalable(g, h.x, h.y);
+      });
+      hills.forEach(function (h) { h.bb = h.label.getBBox(); });
+    }
+
+    function look(cx, cy, kk) { return { x: cx - (W * kk) / 2, y: cy - (H * kk) / 2, w: W * kk, h: H * kk }; }
+    function setView(v) {
+      view = v;
+      k = v.w / W;
+      svg.setAttribute("viewBox", v.x.toFixed(2) + " " + v.y.toFixed(2) + " " + v.w.toFixed(2) + " " + v.h.toFixed(2));
+      for (var n = 0; n < scalables.length; n++) place(scalables[n]);
+      layout();
+    }
+    function extent() {
+      var e = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+      regions.forEach(function (rg) { e.x0 = Math.min(e.x0, rg.ext.x0); e.x1 = Math.max(e.x1, rg.ext.x1); e.y0 = Math.min(e.y0, rg.ext.y0); e.y1 = Math.max(e.y1, rg.ext.y1); });
+      return e;
+    }
+    // The whole land in view, with room above and below for the region names.
+    function fit() {
+      var e = extent(), padX = 18, padT = 44, padB = 36;
+      var kk = Math.max((e.x1 - e.x0) / Math.max(60, W - 2 * padX), (e.y1 - e.y0) / Math.max(60, H - padT - padB));
+      fitK = kk;
+      moved = false;
+      setView(look((e.x0 + e.x1) / 2, (e.y0 + e.y1) / 2 - ((padT - padB) / 2) * kk, kk));
+    }
+    function zoomAt(f, px, py) {
+      var kk = clamp(k * f, fitK / 12, fitK * 2.5), wx = view.x + px * k, wy = view.y + py * k;
+      moved = true;
+      setView({ x: wx - px * kk, y: wy - py * kk, w: W * kk, h: H * kk });
+    }
+
+    // Screen-space placement, redone for every view. Boxes are in world units.
+    function inView(b, margin) { return b.x0 >= view.x + margin && b.x1 <= view.x + view.w - margin && b.y0 >= view.y + margin && b.y1 <= view.y + view.h - margin; }
+    function overlays() {
+      var out = [], a = area.getBoundingClientRect();
+      [hint, zoom, cap].forEach(function (e) {
+        if (e.hidden) return;
+        var r = e.getBoundingClientRect();
+        if (r.width) out.push({ x0: view.x + (r.left - a.left) * k, x1: view.x + (r.right - a.left) * k, y0: view.y + (r.top - a.top) * k, y1: view.y + (r.bottom - a.top) * k });
+      });
+      return out;
+    }
+    function layout() {
+      if (!built) return;
+      var taken = overlays();
+      hills.forEach(function (h) { taken.push({ x0: h.x - 9 * k, x1: h.x + 9 * k, y0: h.y - 10 * k, y1: h.y + 7 * k }); });
+      if (route) route.badges.forEach(function (b) { taken.push({ x0: b.x + (b.ox - 9.5) * k, x1: b.x + (b.ox + 9.5) * k, y0: b.y + (b.oy - 9.5) * k, y1: b.y + (b.oy + 9.5) * k }); });
+      placeNames(taken);
+      placeLabels(taken);
+    }
+    // A region's name goes above its land, or below when the region sits low on the map; then the other side; then one
+    // line further out, or shifted along. It never covers another name, a summit or the map's edge; with no room it hides.
+    function placeNames(taken) {
+      var all = extent(), mid = (all.y0 + all.y1) / 2;
+      regions.forEach(function (rg) {
+        var e = rg.ext, bb = rg.bb, w = bb.width * k, hgt = bb.height * k, gap = 5 * k;
+        var above = e.y0 - gap - (bb.y + bb.height) * k, below = e.y1 + gap - bb.y * k;
+        var ys = (e.y0 + e.y1) / 2 > mid ? [below, above, below + hgt, above - hgt] : [above, below, above - hgt, below + hgt];
+        var cx = clamp((e.x0 + e.x1) / 2, view.x + 6 * k + w / 2, view.x + view.w - 6 * k - w / 2), xs = [cx, cx - w / 2, cx + w / 2];
+        var pick = null;
+        for (var n = 0; n < 12 && !pick; n++) {
+          var x = xs[Math.floor(n / 4)], y = ys[n % 4], b = { x0: x - w / 2, x1: x + w / 2, y0: y + bb.y * k, y1: y + (bb.y + bb.height) * k };
+          if (inView(b, 2 * k) && !overlaps(b, taken)) pick = { x: x, y: y, b: b };
+        }
+        rg.text.parentNode.style.display = pick ? "" : "none";
+        if (!pick) return;
+        rg.s.x = pick.x;
+        rg.s.y = pick.y;
+        place(rg.s);
+        taken.push(pick.b);
+      });
+    }
+    // Labels, greedily: the hill in focus first (always shown), then hills on the route, then by code lines. Each tries
+    // below, above, right and left of its summit, and hides when none is clear, as a map drops minor names.
+    function placeLabels(taken) {
+      var focus = hovered || keyed || (route ? route.stops[route.at].hill.id : selected), onRoute = Object.create(null);
+      if (route) route.stops.forEach(function (st) { onRoute[st.hill.id] = 1; });
+      function rankOf(h) { return h.id === focus ? 4e9 : (onRoute[h.id] ? 2e9 : 0) + h.lines; }
+      hills.slice().sort(function (a, b) { return rankOf(b) - rankOf(a) || a.i - b.i; }).forEach(function (h) {
+        var bb = h.bb, mid = -(bb.y + bb.height / 2), side = bb.width / 2 + 12;
+        var tries = [[0, 0], [0, -10 - (bb.y + bb.height)], [side, mid], [-side, mid]], pick = null, b = null;
+        for (var n = 0; n < tries.length && !pick; n++) {
+          b = { x0: h.x + (bb.x + tries[n][0]) * k, x1: h.x + (bb.x + bb.width + tries[n][0]) * k, y0: h.y + (bb.y + tries[n][1]) * k, y1: h.y + (bb.y + bb.height + tries[n][1]) * k };
+          if (inView(b, 4 * k) && !overlaps(b, taken)) pick = tries[n];
+        }
+        if (!pick && h.id === focus) {
+          pick = tries[0];
+          b = { x0: h.x + bb.x * k, x1: h.x + (bb.x + bb.width) * k, y0: h.y + bb.y * k, y1: h.y + (bb.y + bb.height) * k };
+        }
+        h.label.style.display = pick ? "" : "none";
+        if (!pick) return;
+        h.label.setAttribute("transform", "translate(" + pick[0].toFixed(1) + "," + pick[1].toFixed(1) + ")");
+        taken.push(b);
+      });
+    }
+
+    // Focus lights the hill's trails (solid, with arrows) and dims the rest; a route does its own dimming.
+    function highlight() {
+      if (!built) return;
+      var id = hovered || keyed || selected;
+      svg.classList.toggle("focus", !route && !!id);
+      trails.forEach(function (t) {
+        var on = !route && !!id && (t.a.id === id || t.b.id === id);
+        t.el.classList.toggle("on", on);
+        t.arrows.forEach(function (a) { a.g.classList.toggle("on", on); });
+      });
+      hills.forEach(function (h) {
+        h.el.classList.toggle("on", h.id === id);
+        h.el.classList.toggle("near", !!id && h.id !== id && h.links.some(function (t) { return t.a.id === id || t.b.id === id; }));
+        h.el.classList.toggle("sel", h.id === selected);
+      });
+      layout();
+    }
+    function setHover(id) { if (id !== hovered) { hovered = id; highlight(); } }
+    function pick(id) { if (hooks.onPick) hooks.onPick(id); else api.select(id); }
+
+    function showTip(t, p) {
+      clear(tip);
+      [[t.a, t.b, t.ab], [t.b, t.a, t.ba]].forEach(function (d) {
+        if (d[2] === null) return;
+        var para = box("p", "", tip);
+        box("b", "", para, d[0].name + " \u2192 " + d[1].name);
+        if (d[2]) para.appendChild(document.createTextNode(": " + d[2]));
+      });
+      tip.hidden = false;
+      var x = Math.min(p.x + 14, W - tip.offsetWidth - 8), y = p.y + 14;
+      if (y + tip.offsetHeight > H - 8) y = p.y - tip.offsetHeight - 10;
+      tip.style.left = Math.max(8, x) + "px";
+      tip.style.top = Math.max(8, y) + "px";
+    }
+
+    // Pan by dragging, zoom with the wheel or a pinch. A press that does not move is a pick (a hill), a trail's
+    // tooltip (for touch), or a tap on the empty map, which lets go of the selection.
+    var pointers = {}, drag = null, pinch = null;
+    function pointAt(e) { var a = area.getBoundingClientRect(); return { x: e.clientX - a.left, y: e.clientY - a.top }; }
+    function hillOf(node) { var g = node && node.closest ? node.closest("[data-i]") : null; return g ? hills[+g.getAttribute("data-i")] : null; }
+    function trailOf(node) { var p = node && node.closest ? node.closest("[data-t]") : null; return p ? trails[+p.getAttribute("data-t")] : null; }
+    function held() { return Object.keys(pointers).map(function (id) { return pointers[id]; }); }
+    svg.addEventListener("pointerdown", function (e) {
+      if (e.button || !view) return;
+      if (!hillOf(e.target) && area.focus) area.focus({ preventScroll: true });
+      pointers[e.pointerId] = pointAt(e);
+      try { svg.setPointerCapture(e.pointerId); } catch (err) {}
+      var ps = held();
+      if (ps.length === 2) {
+        var m = { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 };
+        pinch = { d: Math.sqrt(Math.pow(ps[0].x - ps[1].x, 2) + Math.pow(ps[0].y - ps[1].y, 2)) || 1, k: k, wx: view.x + m.x * k, wy: view.y + m.y * k };
+        drag = null;
+        tip.hidden = true;
+      } else if (ps.length === 1) drag = { p: ps[0], v: view, moved: false, hill: hillOf(e.target), trail: trailOf(e.target) };
+    });
+    svg.addEventListener("pointermove", function (e) {
+      if (!pointers[e.pointerId]) { if (e.pointerType === "mouse") hoverAt(e); return; }
+      pointers[e.pointerId] = pointAt(e);
+      var ps = held();
+      if (pinch && ps.length === 2) {
+        var m = { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 }, d = Math.sqrt(Math.pow(ps[0].x - ps[1].x, 2) + Math.pow(ps[0].y - ps[1].y, 2)) || 1;
+        var kk = clamp((pinch.k * pinch.d) / d, fitK / 12, fitK * 2.5);
+        moved = true;
+        setView({ x: pinch.wx - m.x * kk, y: pinch.wy - m.y * kk, w: W * kk, h: H * kk });
+      } else if (drag) {
+        var p = pointers[e.pointerId], dx = p.x - drag.p.x, dy = p.y - drag.p.y;
+        if (!drag.moved && dx * dx + dy * dy > 16) { drag.moved = true; svg.classList.add("drag"); tip.hidden = true; }
+        if (drag.moved) { moved = true; setView({ x: drag.v.x - dx * k, y: drag.v.y - dy * k, w: drag.v.w, h: drag.v.h }); }
+      }
+    });
+    function release(e) {
+      if (!pointers[e.pointerId]) return;
+      delete pointers[e.pointerId];
+      if (pinch) { if (!held().length) pinch = null; drag = null; return; }
+      if (drag && !drag.moved && e.type === "pointerup") {
+        if (drag.hill) pick(drag.hill.id);
+        else if (drag.trail) showTip(drag.trail, pointAt(e));
+        else { tip.hidden = true; if (!route && selected) pick(null); }
+      }
+      drag = null;
+      svg.classList.remove("drag");
+    }
+    svg.addEventListener("pointerup", release);
+    svg.addEventListener("pointercancel", release);
+    svg.addEventListener("pointerleave", function (e) { if (e.pointerType === "mouse" && !drag) { setHover(null); tip.hidden = true; } });
+    function hoverAt(e) {
+      var h = hillOf(e.target), t = h ? null : trailOf(e.target);
+      setHover(h ? h.id : null);
+      if (t) showTip(t, pointAt(e));
+      else tip.hidden = true;
+    }
+    svg.addEventListener("wheel", function (e) {
+      if (!view) return;
+      e.preventDefault();
+      var p = pointAt(e);
+      zoomAt(Math.exp(e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015)), p.x, p.y);
+    }, { passive: false });
+
+    // Keyboard: Tab reaches each hill (Enter or Space picks it, and focus shows its name and trails); during a route the
+    // arrow keys step and Escape leaves it.
+    L.hills.addEventListener("keydown", function (e) {
+      var h = hillOf(e.target);
+      if (h && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pick(h.id); }
+    });
+    L.hills.addEventListener("focusin", function (e) {
+      var h = hillOf(e.target), visible = true;
+      try { visible = e.target.matches(":focus-visible"); } catch (err) {}
+      if (!h || !visible) return;
+      keyed = h.id;
+      if (h.x < view.x + 40 * k || h.x > view.x + view.w - 40 * k || h.y < view.y + 40 * k || h.y > view.y + view.h - 40 * k) { moved = true; setView(look(h.x, h.y, k)); }
+      highlight();
+    });
+    L.hills.addEventListener("focusout", function () { if (keyed) { keyed = null; highlight(); } });
+    container.addEventListener("keydown", function (e) {
+      if (!route) return;
+      if (e.key === "ArrowRight") step(1);
+      else if (e.key === "ArrowLeft") step(-1);
+      else if (e.key === "Escape") leaveRoute();
+      else return;
+      e.preventDefault();
+    });
+
+    // Routes: the flow drawn along the trails' curves with numbered stops (repeat visits fan out around a hill), and a
+    // marker that walks it, pausing at each stop for a reading time based on the step's length.
+    function startRoute(i) {
+      leaveRoute(true);
+      hovered = keyed = null;
+      tip.hidden = true;
+      var f = flows[i], seen = Object.create(null), legs = [];
+      var stops = f.steps.map(function (st) { var h = byId[st.system], v = seen[h.id] || 0; seen[h.id] = v + 1; return { hill: h, text: str(st.text), v: v }; });
+      for (var n = 1; n < stops.length; n++) {
+        var a = stops[n - 1].hill, b = stops[n].hill;
+        if (a === b) { legs.push(null); continue; }
+        var c = bend(a, b), d = curve(a, c, b), len = 0, prev = a;
+        el("path", { "class": "casing", d: d }, L.route);
+        el("path", { "class": "route", d: d }, L.route);
+        for (var s = 1; s <= 16; s++) { var p = at(a, c, b, s / 16); len += Math.sqrt(Math.pow(p.x - prev.x, 2) + Math.pow(p.y - prev.y, 2)); prev = p; }
+        legs.push({ a: a, c: c, b: b, len: len });
+      }
+      var badges = stops.map(function (st, n) {
+        var g = el("g", { "class": "badge" }, L.badges), turn = ((-50 + st.v * 42) * Math.PI) / 180, ox = Math.cos(turn) * 17, oy = Math.sin(turn) * 17 - 6;
+        var inner = el("g", { transform: "translate(" + ox.toFixed(1) + "," + oy.toFixed(1) + ")" }, g);
+        el("circle", { r: 8.5 }, inner);
+        el("text", {}, inner).textContent = String(n + 1);
+        var s = scalable(g, st.hill.x, st.hill.y);
+        s.ox = ox;
+        s.oy = oy;
+        return s;
+      });
+      var w = el("g", { "class": "walker" }, L.walker);
+      el("circle", { "class": "pulse", r: 7 }, w);
+      el("circle", { "class": "dot", r: 6.5 }, w);
+      route = { i: i, f: f, stops: stops, legs: legs, badges: badges, walker: scalable(w, stops[0].hill.x, stops[0].hill.y), at: 0, playing: true, timer: 0, raf: 0 };
+      badges.concat([route.walker]).forEach(place);
+      hills.forEach(function (h) { h.el.classList.toggle("onroute", h.id in seen); });
+      svg.classList.add("routing");
+      routeButtons.forEach(function (b, j) { b.setAttribute("aria-pressed", String(j === i)); });
+      cap.hidden = false;
+      highlight();
+      arrive(0);
+    }
+    function leaveRoute(quiet) {
+      if (!route) return;
+      clearTimeout(route.timer);
+      cancelAnimationFrame(route.raf);
+      var drop = route.badges.concat([route.walker]);
+      scalables = scalables.filter(function (s) { return drop.indexOf(s) < 0; });
+      clear(L.route);
+      clear(L.badges);
+      clear(L.walker);
+      hills.forEach(function (h) { h.el.classList.remove("onroute"); h.el.classList.remove("here"); });
+      svg.classList.remove("routing");
+      routeButtons.forEach(function (b) { b.setAttribute("aria-pressed", "false"); });
+      cap.hidden = true;
+      route = null;
+      if (!quiet) highlight();
+    }
+    function arrive(n) {
+      var R = route, st = R.stops[n], last = R.stops.length - 1;
+      clearTimeout(R.timer);
+      cancelAnimationFrame(R.raf);
+      if (!area.clientWidth) { leaveRoute(true); return; } // the page hid the map
+      R.at = n;
+      R.walker.x = st.hill.x;
+      R.walker.y = st.hill.y;
+      place(R.walker);
+      hills.forEach(function (h) { h.el.classList.toggle("here", h === st.hill); });
+      R.badges.forEach(function (b, j) { b.g.classList.toggle("past", j < n); });
+      capStep.textContent = (str(R.f.name) || "Route") + " \xB7 stop " + (n + 1) + " of " + (last + 1);
+      capSys.textContent = st.hill.name;
+      capText.textContent = st.text;
+      if (n === last) R.playing = false;
+      playLabel();
+      selected = st.hill.id;
+      if (hooks.onPick) hooks.onPick(st.hill.id, true);
+      highlight();
+      if (R.playing) R.timer = setTimeout(function () { walk(n); }, Math.min(5200, 1500 + 24 * st.text.length));
+    }
+    function walk(n) {
+      var R = route, g = R.legs[n], still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (!g || still) { arrive(n + 1); return; }
+      var dur = clamp(g.len / k / WALK, 500, 2000), t0 = 0;
+      function frame(now) {
+        if (!t0) t0 = now;
+        var t = Math.min(1, (now - t0) / dur), p = at(g.a, g.c, g.b, t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t));
+        R.walker.x = p.x;
+        R.walker.y = p.y;
+        place(R.walker);
+        if (t < 1) R.raf = requestAnimationFrame(frame);
+        else arrive(n + 1);
+      }
+      R.raf = requestAnimationFrame(frame);
+    }
+    function playLabel() {
+      var R = route, done = R.at === R.stops.length - 1 && !R.playing;
+      cPlay.textContent = done ? "\u21BA" : R.playing ? "\u275A\u275A" : "\u25B6";
+      cPlay.setAttribute("aria-label", done ? "Play again" : R.playing ? "Pause" : "Play");
+      cPlay.title = cPlay.getAttribute("aria-label");
+    }
+    function togglePlay() {
+      var R = route;
+      if (!R) return;
+      if (R.at === R.stops.length - 1 && !R.playing) { R.playing = true; arrive(0); return; }
+      R.playing = !R.playing;
+      playLabel();
+      if (R.playing) walk(R.at);
+      else arrive(R.at);
+    }
+    function step(d) {
+      var R = route;
+      if (!R || R.at + d < 0 || R.at + d >= R.stops.length) return;
+      R.playing = false;
+      arrive(R.at + d);
+    }
+
+    var api = {
+      select: function (id, centre) {
+        id = typeof id === "string" && byId[id] ? id : null;
+        if (route && id !== route.stops[route.at].hill.id) leaveRoute(true);
+        selected = id;
+        if (!built) return;
+        highlight();
+        if (centre && id) { moved = true; setView(look(byId[id].x, byId[id].y, k)); }
+      },
+      resize: function () {
+        var w = area.clientWidth, h = area.clientHeight;
+        if (!w || !h || (built && w === W && h === H)) return;
+        var turn = wantsTurn(w, h), c = view ? { x: view.x + view.w / 2, y: view.y + view.h / 2 } : null;
+        W = w;
+        H = h;
+        if (!built || turn !== turned) {
+          leaveRoute(true);
+          turned = turn;
+          build();
+          fit();
+          highlight();
+        } else if (!moved) fit();
+        else setView(look(c.x, c.y, k));
+      },
+    };
+    api.resize();
+    return api;
+  }
+
+  window.TrailMap = { mount: mount };
+})();
+</script>
+`;
+
 // src/render.ts
 var MARKER = "/*GUIDE_DATA*/";
+var MAP_MARKER = "<!--TRAIL_MAP-->";
 function renderPage(ctx, guide, opts = {}) {
-  if (guide_default.split(MARKER).length !== 2) throw new Error(`the page template must contain ${MARKER} exactly once`);
+  for (const m of [MARKER, MAP_MARKER]) if (guide_default.split(m).length !== 2) throw new Error(`the page template must contain ${m} exactly once`);
   const files = universe(ctx, listRepoFiles(ctx.root, ctx.config.files));
   const stats = {
     files: files.length,
@@ -1647,7 +2472,7 @@ function renderPage(ctx, guide, opts = {}) {
     source: normalizePath(relative4(ctx.root, ctx.guidePath))
   };
   const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)), mapOnly: !!opts.mapOnly } }).replace(/</g, "\\u003c");
-  return guide_default.replace(MARKER, () => json);
+  return guide_default.replace(MARKER, () => json).replace(MAP_MARKER, () => map_default);
 }
 function writePage(ctx, guide, out, opts) {
   const path = resolve3(out ?? resolve3(ctx.dir, "guide.html"));

@@ -14,8 +14,11 @@ import { git, listRepoFiles, universe, type Ctx } from "./repo"
 import type { Guide } from "./types"
 // esbuild inlines the template as a string (--loader:.html=text), so the bundled CLI is one file.
 import template from "../templates/guide.html"
+import mapModule from "../templates/map.html"
 
 export const MARKER = "/*GUIDE_DATA*/"
+/** Where the trail map module (templates/map.html: one style and one script element) goes in the page. */
+export const MAP_MARKER = "<!--TRAIL_MAP-->"
 
 export type RenderOptions = {
   /** Just the map, the route bar and the entry panel: the page switches the rest off. */
@@ -23,7 +26,7 @@ export type RenderOptions = {
 }
 
 export function renderPage(ctx: Ctx, guide: Guide, opts: RenderOptions = {}): string {
-  if (template.split(MARKER).length !== 2) throw new Error(`the page template must contain ${MARKER} exactly once`)
+  for (const m of [MARKER, MAP_MARKER]) if (template.split(m).length !== 2) throw new Error(`the page template must contain ${m} exactly once`)
   const files = universe(ctx, listRepoFiles(ctx.root, ctx.config.files))
   const stats = {
     files: files.length,
@@ -37,7 +40,8 @@ export function renderPage(ctx: Ctx, guide: Guide, opts: RenderOptions = {}): st
   }
   // `<` is escaped so no string in the data can close the <script> element early.
   const json = JSON.stringify({ ...guide, stats, map: { hills: layoutHills(guide, systemSizes(ctx, guide, files)), mapOnly: !!opts.mapOnly } }).replace(/</g, "\\u003c")
-  return template.replace(MARKER, () => json)
+  // The data goes in first: with `<` escaped it cannot hold the map marker, so the module lands where the template put it.
+  return template.replace(MARKER, () => json).replace(MAP_MARKER, () => mapModule)
 }
 
 export function writePage(ctx: Ctx, guide: Guide, out?: string, opts?: RenderOptions): string {
