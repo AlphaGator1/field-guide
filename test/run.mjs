@@ -317,12 +317,19 @@ t("the page makes no network request (no http(s) src or href)", !/(src|href)=["'
 // ---------------------------------------------------------------- 4b. trail map: sizes
 console.log("\n--- 4b. trail map: sizes ---")
 const pageData = (html) => JSON.parse(html.match(/<script type="application\/json" id="guide-data">([\s\S]*?)<\/script>/)[1])
+/** Render a repo and return its hills (empty when the page carries none), with the CLI's wall time in ms. A stale page is removed first. */
+const hillsOf = (dir) => {
+  const pagePath = join(dir, "docs/field-guide/guide.html")
+  if (existsSync(pagePath)) unlinkSync(pagePath)
+  const t0 = Date.now()
+  const rr = run(dir, ["render"])
+  const ms = Date.now() - t0
+  return { code: rr.code, out: rr.out, ms, hills: existsSync(pagePath) ? pageData(readFileSync(pagePath, "utf8")).map?.hills ?? [] : [] }
+}
 /** Render a repo and return each hill's size by system id (an empty object when the page carries no hills yet). */
 const sizesOf = (dir) => {
-  const rr = run(dir, ["render"])
-  const page = existsSync(join(dir, "docs/field-guide/guide.html")) ? readFileSync(join(dir, "docs/field-guide/guide.html"), "utf8") : ""
-  const hills = (page ? pageData(page).map?.hills : undefined) ?? []
-  return { code: rr.code, out: rr.out, sizes: Object.fromEntries(hills.map((h) => [h.id, { files: h.files, codeLines: h.codeLines, branchPoints: h.branchPoints }])) }
+  const r = hillsOf(dir)
+  return { code: r.code, out: r.out, sizes: Object.fromEntries(r.hills.map((h) => [h.id, { files: h.files, codeLines: h.codeLines, branchPoints: h.branchPoints }])) }
 }
 const A_TS = "if (a && b) {\n  for (const x of xs) { y = x ? 1 : 2 }\n\n} else if (c || d) {\n  while (e) {}\n}\ns.match(/x/)\n"
 const sizeFiles = (f) => {
@@ -400,15 +407,6 @@ t("a guide system with no owns list owns no code, and render still succeeds",
 
 // ---------------------------------------------------------------- 4c. trail map: layout
 console.log("\n--- 4c. trail map: layout ---")
-/** Render a repo and return its hills (empty when the page carries none), with the CLI's wall time in ms. A stale page is removed first. */
-const hillsOf = (dir) => {
-  const pagePath = join(dir, "docs/field-guide/guide.html")
-  if (existsSync(pagePath)) unlinkSync(pagePath)
-  const t0 = Date.now()
-  const rr = run(dir, ["render"])
-  const ms = Date.now() - t0
-  return { code: rr.code, out: rr.out, ms, hills: existsSync(pagePath) ? pageData(readFileSync(pagePath, "utf8")).map?.hills ?? [] : [] }
-}
 const bucketOf = (n) => (n < 1 ? 0 : 1 + Math.floor(Math.log2(n)))
 const finiteHill = (h) => [h.x, h.y, h.footprint, h.height].every(Number.isFinite)
 const gap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -458,11 +456,10 @@ t("a size change within a bucket moves nothing",
     b0 && b1 && b0.codeLines !== b1.codeLines && bucketOf(b0.codeLines) === bucketOf(b1.codeLines) && b1.footprint > b0.footprint &&
     before.hills.every((h, i) => within.hills[i].id === h.id && within.hills[i].x === h.x && within.hills[i].y === h.y),
   `${b0?.codeLines} -> ${b1?.codeLines} lines\n${JSON.stringify(before.hills)}\n${JSON.stringify(within.hills)}`)
-const moved = Math.max(...before.hills.map((h, i) => gap(h, across.hills[i])))
+const moved = across.hills.length === before.hills.length ? Math.max(...before.hills.map((h, i) => gap(h, across.hills[i]))) : Infinity
 t("a size change across a bucket moves hills only a little",
-  across.code === 0 && across.hills.length === 4 && b0 && b2 && bucketOf(b2.codeLines) > bucketOf(b0.codeLines) &&
-    moved <= 0.35 * diagonal(before.hills) && groupOrder(before.hills).join() === groupOrder(across.hills).join(),
-  `${b0?.codeLines} -> ${b2?.codeLines} lines moved a hill ${(moved / diagonal(before.hills)).toFixed(3)} of the diagonal; groups ${groupOrder(before.hills)} -> ${groupOrder(across.hills)}`)
+  across.code === 0 && across.hills.length === 4 && b0 && b2 && bucketOf(b2.codeLines) > bucketOf(b0.codeLines) && moved <= 0.35 * diagonal(before.hills),
+  `${b0?.codeLines} -> ${b2?.codeLines} lines moved a hill ${(moved / diagonal(before.hills)).toFixed(3)} of the diagonal`)
 
 const sizedHills = hillsOf(sizeRepo).hills
 const maxBranches = (hills) => Math.max(...hills.map((h) => h.branchPoints))
@@ -489,22 +486,59 @@ t("degenerate guides lay out",
   laid.every((x) => x.code === 0 && x.hills.length === (x.name.startsWith("one") ? 1 : 4) && x.hills.every(finiteHill)),
   laid.map((x) => `${x.name}: exit ${x.code}, ${x.hills.length} hills ${x.out}`).join("\n"))
 
-// 60 systems in 6 groups; neighbours in the list sit in different groups, so every connection is a cross-group one.
-const bigRepo = makeRepo({
+// `count` generated systems in `groups` groups: system i is in group i % groups (so neighbours in the list sit in different
+// groups and every connection crosses groups), owns one file of 10 * (i + 1) lines, and connects to the next two.
+const genPath = (i) => `src/gen/s${i}.ts`
+const generatedRepo = (count, groups) => makeRepo({
   guide: (a) => {
-    a.groups = Array.from({ length: 6 }, (_, g) => ({ id: `g${g}`, name: `Group ${g}`, blurb: "x" }))
-    a.systems = Array.from({ length: 60 }, (_, i) => ({
-      ...sizeSystem(`s${i}`, `g${i % 6}`, [`src/gen/s${i}.ts`]),
-      connects: [1, 2].map((k) => ({ to: `s${(i + k) % 60}`, why: "x" })),
+    a.groups = Array.from({ length: groups }, (_, g) => ({ id: `g${g}`, name: `Group ${g}`, blurb: "x" }))
+    a.systems = Array.from({ length: count }, (_, i) => ({
+      ...sizeSystem(`s${i}`, `g${i % groups}`, [genPath(i)]),
+      connects: [1, 2].map((k) => ({ to: `s${(i + k) % count}`, why: "x" })),
     }))
     delete a.flows
   },
-  files: (f) => { for (let i = 0; i < 60; i++) f[`src/gen/s${i}.ts`] = plainLines(10 * (i + 1)) },
+  files: (f) => { for (let i = 0; i < count; i++) f[genPath(i)] = plainLines(10 * (i + 1)) },
 })
-const big = hillsOf(bigRepo)
+const big = hillsOf(generatedRepo(60, 6))
 t("60 systems lay out quickly",
   big.code === 0 && big.hills.length === 60 && big.hills.every(finiteHill) && big.ms < 2000 && footprintsApart(big.hills),
   `exit ${big.code}, ${big.hills.length} hills in ${big.ms} ms ${big.out}`)
+
+// Stability at scale: grow one system across exactly one bucket (doubling its lines), one system at a time, and see how far
+// any hill moves (as a share of the first layout's diagonal) and whether the groups keep their order around the middle.
+const growOne = (count, groups, every) => {
+  const dir = generatedRepo(count, groups)
+  const first = hillsOf(dir)
+  const order = groupOrder(first.hills).join()
+  const diag = diagonal(first.hills)
+  const out = { first, trials: 0, worst: 0, bad: [] }
+  if (first.code !== 0 || first.hills.length !== count) return { ...out, bad: [`first render: exit ${first.code}, ${first.hills.length} hills`] }
+  for (let i = 0; i < count; i += every) {
+    writeFileSync(join(dir, genPath(i)), plainLines(20 * (i + 1)))
+    const up = hillsOf(dir)
+    writeFileSync(join(dir, genPath(i)), plainLines(10 * (i + 1)))
+    out.trials++
+    const grown = up.hills[i]
+    if (up.code !== 0 || up.hills.length !== count || bucketOf(grown.codeLines) !== bucketOf(first.hills[i].codeLines) + 1) {
+      out.bad.push(`s${i}: exit ${up.code}, ${up.hills.length} hills, ${first.hills[i].codeLines} -> ${grown?.codeLines} lines`)
+      continue
+    }
+    out.worst = Math.max(out.worst, ...first.hills.map((h, k) => gap(h, up.hills[k]) / diag))
+    if (groupOrder(up.hills).join() !== order) out.bad.push(`s${i}: groups ${order} -> ${groupOrder(up.hills)}`)
+  }
+  return out
+}
+const scaleDetail = (r) => `worst ${r.worst.toFixed(3)} of the diagonal over ${r.trials} trials; ${r.bad.join("; ")}`
+// The bounds sit well above what the layout does (0.01 and 0.14) and well below what it did without its tether (0.19 and 0.36).
+const small3 = growOne(13, 3, 1)
+t("one system growing a bucket moves hills only a little: 13 systems in 3 groups",
+  small3.trials === 13 && small3.bad.length === 0 && small3.worst <= 0.1,
+  scaleDetail(small3))
+const big3 = growOne(60, 3, 5)
+t("one system growing a bucket moves hills only a little: 60 systems in 3 groups",
+  big3.trials === 12 && big3.bad.length === 0 && big3.worst <= 0.25,
+  scaleDetail(big3))
 
 // ---------------------------------------------------------------- 5. init and inventory
 console.log("\n--- 5. init and inventory ---")

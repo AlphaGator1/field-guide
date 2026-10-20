@@ -1028,15 +1028,16 @@ var ANCHOR_RX = 340;
 var ANCHOR_RY = 240;
 var JITTER = 70;
 var STEPS = 700;
-var SPRING = 0.04;
+var SPRING = 0.02;
 var COHESION = 0.02;
 var PULL = 1e-3;
+var TETHER = 0.09;
 var COLLISION = 0.1;
 var REST_SAME = 36;
 var REST_OTHER = 150;
 var CLEARANCE_SAME = { scale: 0.8, gap: 30 };
 var CLEARANCE_OTHER = { scale: 1.15, gap: 120 };
-var SETTLE_PASSES = 400;
+var SETTLE_PASSES = 2e3;
 function fnv1a(text) {
   let h = 2166136261;
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
@@ -1069,6 +1070,8 @@ function layoutHills(guide, sizes) {
     px[i] = (used.length > 1 ? ANCHOR_RX * Math.cos(turn) : 0) + (rand() * 2 - 1) * JITTER;
     py[i] = (used.length > 1 ? ANCHOR_RY * Math.sin(turn) : 0) + (rand() * 2 - 1) * JITTER;
   });
+  const startX = Float64Array.from(px);
+  const startY = Float64Array.from(py);
   const radius = size.map((z) => footprintRadius(2 ** sizeBucket(z.codeLines)));
   const index = new Map(systems.map((s, i) => [s.id, i]));
   const trails = /* @__PURE__ */ new Map();
@@ -1152,8 +1155,8 @@ function layoutHills(guide, sizes) {
       count[slot[i]]++;
     }
     for (let i = 0; i < n; i++) {
-      dx[i] += (sumX[slot[i]] / count[slot[i]] - px[i]) * COHESION * alpha - px[i] * PULL * alpha;
-      dy[i] += (sumY[slot[i]] / count[slot[i]] - py[i]) * COHESION * alpha - py[i] * PULL * alpha;
+      dx[i] += (sumX[slot[i]] / count[slot[i]] - px[i]) * COHESION * alpha - px[i] * PULL * alpha + (startX[i] - px[i]) * TETHER;
+      dy[i] += (sumY[slot[i]] / count[slot[i]] - py[i]) * COHESION * alpha - py[i] * PULL * alpha + (startY[i] - py[i]) * TETHER;
     }
     for (let i = 0; i < n; i++) {
       px[i] += dx[i];

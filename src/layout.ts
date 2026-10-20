@@ -5,9 +5,10 @@
  * the map stays put as code changes: an ordinary commit moves nothing, and a
  * system that crosses a bucket boundary moves its neighbours only a little.
  * Pure and deterministic: the same guide and sizes give the same hills on every
- * run, and adding a system does not reseed the others. The forces are gentle
- * and applied to every pair at once: a hard, one-pair-after-another push gave
- * the same crowd of hills a different arrangement after a small change.
+ * run, and adding a system does not reseed the others. Two things keep a small
+ * change from rearranging a crowd of hills: every pair's collision push is
+ * applied at once (pushing one pair after another let the order decide), and a
+ * tether holds each hill near its starting place, which no size can change.
  */
 import type { Guide, Hill, Size } from "./types"
 
@@ -25,15 +26,16 @@ const ANCHOR_RX = 340 // groups start on an ellipse this wide...
 const ANCHOR_RY = 240 // ...and this tall
 const JITTER = 70 // a system starts within this distance (a square's half-side) of its group's anchor
 const STEPS = 700 // relaxation steps; alpha scales the springs, cohesion and pull down linearly from 1 to 0
-const SPRING = 0.04 // the share of a trail's stretch removed per step at full alpha (before dividing by its ends' trail counts)
+const SPRING = 0.02 // the share of a trail's stretch removed per step at full alpha (before dividing by its ends' trail counts)
 const COHESION = 0.02 // the share of the distance to the group's centre closed per step at full alpha
 const PULL = 0.001 // the share of the distance to the origin closed per step at full alpha
+const TETHER = 0.09 // the share of the way back to its starting place a hill closes per step, kept up to the last step (not scaled by alpha)
 const COLLISION = 0.1 // the share of an overlap each end of a pair removes per step; all pairs push at once
 const REST_SAME = 36 // a trail's rest length beyond the two collision radii, within a group...
 const REST_OTHER = 150 // ...and between groups
 const CLEARANCE_SAME = { scale: 0.8, gap: 30 } // the least centre distance, as scale * (ra + rb) + gap...
 const CLEARANCE_OTHER = { scale: 1.15, gap: 120 } // ...within a group and between groups
-const SETTLE_PASSES = 400 // extra collision-only passes after the last step, until nothing overlaps
+const SETTLE_PASSES = 2000 // at most this many extra collision-only passes after the last step; they stop once the worst overlap is under 0.01
 
 /** FNV-1a: a 32-bit hash of the text. */
 function fnv1a(text: string): number {
@@ -77,11 +79,15 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
   const px = new Float64Array(n)
   const py = new Float64Array(n)
   systems.forEach((s, i) => {
+    // The first group sits at the left of the ellipse and the rest follow clockwise on screen.
     const turn = (-0.5 + slot[i] / used.length) * 2 * Math.PI
     const rand = mulberry32(fnv1a(s.id))
     px[i] = (used.length > 1 ? ANCHOR_RX * Math.cos(turn) : 0) + (rand() * 2 - 1) * JITTER
     py[i] = (used.length > 1 ? ANCHOR_RY * Math.sin(turn) : 0) + (rand() * 2 - 1) * JITTER
   })
+
+  const startX = Float64Array.from(px)
+  const startY = Float64Array.from(py)
 
   // The collision radius comes from the size bucket, never the exact size.
   const radius = size.map((z) => footprintRadius(2 ** sizeBucket(z.codeLines)))
@@ -170,7 +176,7 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
       dx[b] -= vx * pull
       dy[b] -= vy * pull
     }
-    // Cohesion toward the group's centre, and a weak pull toward the origin.
+    // Cohesion toward the group's centre, a weak pull toward the origin, and the tether to the starting place.
     sumX.fill(0)
     sumY.fill(0)
     count.fill(0)
@@ -180,8 +186,8 @@ export function layoutHills(guide: Guide, sizes: Map<string, Size>): Hill[] {
       count[slot[i]]++
     }
     for (let i = 0; i < n; i++) {
-      dx[i] += (sumX[slot[i]] / count[slot[i]] - px[i]) * COHESION * alpha - px[i] * PULL * alpha
-      dy[i] += (sumY[slot[i]] / count[slot[i]] - py[i]) * COHESION * alpha - py[i] * PULL * alpha
+      dx[i] += (sumX[slot[i]] / count[slot[i]] - px[i]) * COHESION * alpha - px[i] * PULL * alpha + (startX[i] - px[i]) * TETHER
+      dy[i] += (sumY[slot[i]] / count[slot[i]] - py[i]) * COHESION * alpha - py[i] * PULL * alpha + (startY[i] - py[i]) * TETHER
     }
     for (let i = 0; i < n; i++) {
       px[i] += dx[i]
